@@ -1972,6 +1972,13 @@ const BANDS = [20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,10
 const HOWL_SUSTAIN_FRAMES = 60;
 
 // ── STORAGE ──
+async function requestStoragePersist() {
+  if (!navigator.storage?.persist) return false;
+  const persisted = await navigator.storage.persisted();
+  if (persisted) return true;
+  return await navigator.storage.persist();
+}
+
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('livemaxai') || '{}');
@@ -2000,6 +2007,7 @@ function saveToStorage() {
     apiKey: state.apiKey,
     pinnedMemoIdx: state.pinnedMemoIdx,
   }));
+  if (state.apiKey) requestStoragePersist();
 }
 
 // ── SETTINGS PANEL ──
@@ -3452,6 +3460,7 @@ function _tutDone() {
 })();
 
 loadSettings();
+requestStoragePersist();
 
 // 저장 손실 감지: loadSettings 후 API 키가 없고 tutorial_done 마커도 없는 경우 = 첫 실행
 // tutorial_done은 있는데 API 키가 없으면 = localStorage 초기화됨
