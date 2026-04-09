@@ -89,7 +89,6 @@ Bass: 50~60ms attack / 150~300ms release
 const MODE_PROMPTS = {
   music:  "",
   speech: "Speech intelligibility is the absolute priority.",
-  mixed:  "Music and vocals should blend harmoniously.",
 };
 
 // ── 한글 키 → 숫자 인덱스 매핑 (HTML의 seg-btn 텍스트와 정확히 일치) ──
@@ -109,7 +108,7 @@ const MIX_PROMPTS = {
 
   vocalWeight: {
     '밴드중심':  "Vocals sit back, buried in instruments. Band energy first.",
-    '균형':     "Vocals should sit back in the mix",
+    '균형':     "Vocals should slightly sit back in the mix",
     '보컬중심':  "",
   },
 
@@ -1493,17 +1492,29 @@ input[type=range] {
         <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_model">AI 모델</span><span class="acc-arrow">▶</span></div>
         <div class="acc-body">
           <div class="radio-group">
-            <div class="radio-option" id="model-2.5-flash" onclick="selectModel('gemini-2.5-flash')">
+            <div class="radio-option" id="preset-flash-30-minimal" onclick="selectModelPreset('flash-30-minimal')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">2.5 Flash</div></div>
+              <div><div class="radio-text">Flash 3.0 Minimal</div></div>
             </div>
-            <div class="radio-option" id="model-3-flash" onclick="selectModel('gemini-3-flash-preview')">
+            <div class="radio-option" id="preset-flash-30-high" onclick="selectModelPreset('flash-30-high')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">3.0 Flash</div></div>
+              <div><div class="radio-text">Flash 3.0 High</div></div>
             </div>
-            <div class="radio-option" id="model-3.1-flash-lite" onclick="selectModel('gemini-3.1-flash-lite-preview')">
+            <div class="radio-option" id="preset-flash-31-minimal" onclick="selectModelPreset('flash-31-minimal')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">3.1 Flash Lite</div></div>
+              <div><div class="radio-text">Flash 3.1 Minimal</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-31-low" onclick="selectModelPreset('flash-31-low')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.1 Low</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-31-mid" onclick="selectModelPreset('flash-31-mid')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.1 Medium</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-31-high" onclick="selectModelPreset('flash-31-high')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.1 High</div></div>
             </div>
           </div>
         </div>
@@ -1960,7 +1971,7 @@ const state = {
   deviceId: 'default',
   devices: [],
   wakeLock: null,
-  model: 'gemini-3.1-flash-lite-preview',
+  modelPreset: 'flash-31-minimal',
   useProxy: true,
   apiKey: '',
   issueHistory: [],
@@ -1970,6 +1981,15 @@ const state = {
 const PHONE_CORRECTION = [8,8,7,6,5,4,3,2,1,0,0,-1,-1,-1,-2,-2,-2,-2,-3,-3,-3,-3,-4,-4,-4,-4,-4,-5,-5,-5,-5,-5];
 const BANDS = [20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,1000,1250,1600,2000,2500,3150,4000,5000,6300,8000,10000,12500,16000,20000,22000];
 const HOWL_SUSTAIN_FRAMES = 60;
+
+const MODEL_CONFIG = {
+  'flash-30-minimal': { model: 'gemini-3-flash-preview',        thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
+  'flash-30-high':    { model: 'gemini-3-flash-preview',        thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 1800 },
+  'flash-31-minimal': { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
+  'flash-31-low':     { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1200 },
+  'flash-31-mid':     { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'MEDIUM' }, maxOutputTokens: 1400 },
+  'flash-31-high':    { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 1800 },
+};
 
 // ── STORAGE ──
 async function requestStoragePersist() {
@@ -1985,7 +2005,7 @@ function loadSettings() {
 
     if (s.source)    state.source    = s.source;
     if (s.deviceId)  state.deviceId  = s.deviceId;
-    if (s.model)     state.model     = s.model;
+    if (s.modelPreset && MODEL_CONFIG[s.modelPreset]) state.modelPreset = s.modelPreset;
     if (s.useProxy !== undefined) state.useProxy = s.useProxy;
     if (s.apiKey)    state.apiKey    = s.apiKey;
     const mp2 = JSON.parse(localStorage.getItem('memo_presets') || 'null');
@@ -2002,7 +2022,7 @@ function loadSettings() {
 function saveToStorage() {
   localStorage.setItem('livemaxai', JSON.stringify({
     source: state.source, deviceId: state.deviceId,
-    model: state.model,
+    modelPreset: state.modelPreset,
     useProxy: state.useProxy,
     apiKey: state.apiKey,
     pinnedMemoIdx: state.pinnedMemoIdx,
@@ -2842,9 +2862,10 @@ ${t('ai_prompt')}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 35000);
     const useDirectApi = !state.useProxy && state.apiKey;
+    const cfg = MODEL_CONFIG[state.modelPreset] || MODEL_CONFIG['flash-31-minimal'];
     const apiUrl = useDirectApi
-      ? `https://generativelanguage.googleapis.com/v1beta/models/${state.model}:generateContent?key=${state.apiKey}`
-      : `https://proxy.dumpit.dev/v1beta/models/${state.model}:generateContent`;
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${state.apiKey}`
+      : `https://proxy.dumpit.dev/v1beta/models/${cfg.model}:generateContent`;
     const response = await fetch(
       apiUrl,
       {
@@ -2855,7 +2876,11 @@ ${t('ai_prompt')}`;
             {text:prompt},
             {inline_data:{mime_type:AUDIO_GEMINI_MIME,data:base64}}
           ]}],
-          generationConfig:{maxOutputTokens:250,temperature:0.7,...(state.model!=='gemini-2.5-flash'&&{thinkingConfig:{thinkingLevel:"MINIMAL"}})}
+          generationConfig:{
+            maxOutputTokens: cfg.maxOutputTokens,
+            temperature: 0.7,
+            thinkingConfig: cfg.thinkingConfig,
+          }
         })
       }
     );
@@ -2962,18 +2987,14 @@ function blobToBase64(blob) {
 
 // ── SETTINGS ──
 function renderSettings() {
-  const modelMap = {
-    'gemini-2.5-flash': 'model-2.5-flash',
-    'gemini-3-flash-preview': 'model-3-flash',
-    'gemini-3.1-flash-lite-preview': 'model-3.1-flash-lite',
-  };
-  Object.entries(modelMap).forEach(([val, id]) => {
-    const el = document.getElementById(id);
+  Object.keys(MODEL_CONFIG).forEach(preset => {
+    const el = document.getElementById(`preset-${preset}`);
     if (!el) return;
-    const active = state.model === val;
+    const active = state.modelPreset === preset;
     el.classList.toggle('selected', active);
     el.querySelector('.radio-dot-inner').style.display = active ? 'block' : 'none';
   });
+
   renderDeviceSelect();
   renderApiMode();
   renderSpaceEnv();
@@ -2981,7 +3002,7 @@ function renderSettings() {
   renderMemoPresets();
 }
 function selectSource(src) { state.source=src; renderSettings(); }
-function selectModel(val) { state.model=val; saveToStorage(); renderSettings(); }
+function selectModelPreset(preset) { state.modelPreset = preset; saveToStorage(); renderSettings(); }
 function selectApiMode(useProxy) {
   state.useProxy = useProxy;
   saveToStorage();
@@ -3018,7 +3039,7 @@ function exportSettings() {
   flushSpaceMemo();
   const data = {
     source: state.source,
-    model: state.model,
+    modelPreset: state.modelPreset,
     apiKey: state.apiKey,
     spaceEnv: state.spaceEnv,
     spacePresets: state.spacePresets,
@@ -3044,7 +3065,7 @@ function importSettings(event) {
       const data = JSON.parse(e.target.result);
 
       if (data.source) state.source = data.source;
-      if (data.model) state.model = data.model;
+      if (data.modelPreset && MODEL_CONFIG[data.modelPreset]) state.modelPreset = data.modelPreset;
       if (data.apiKey) state.apiKey = data.apiKey;
       if (data.spaceEnv) { state.spaceEnv = { ...state.spaceEnv, ...data.spaceEnv }; localStorage.setItem('space_env', JSON.stringify(state.spaceEnv)); }
       if (Array.isArray(data.spacePresets)) { state.spacePresets = data.spacePresets; localStorage.setItem('space_presets', JSON.stringify(state.spacePresets)); }
