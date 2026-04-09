@@ -3673,10 +3673,11 @@ _ctrlMQLand.addEventListener('change', initControlsPanel);
     });
   }
 
-  // 조언 카드 영역 탭 → 조언창 풀스크린 열기 (스크롤과 구분)
+  // 조언 카드 영역 탭 → 조언창 풀스크린 열기 / 더블탭 → 닫기 (스크롤과 구분)
   const cardsScroll = document.getElementById('cards-scroll');
   if (cardsScroll) {
     let _tsX = 0, _tsY = 0, _tsMoved = false;
+    let _lastTapTime = 0;
 
     cardsScroll.addEventListener('touchstart', function(e) {
       _tsX = e.touches[0].clientX;
@@ -3694,8 +3695,18 @@ _ctrlMQLand.addEventListener('change', initControlsPanel);
     cardsScroll.addEventListener('touchend', function(e) {
       if (!isFSEnabled() || _tsMoved) return;
       const ap = document.getElementById('advice-pane');
-      if (!ap.classList.contains('fs-open')) {
+      const now = Date.now();
+      if (ap.classList.contains('fs-open')) {
+        // 풀스크린 열린 상태: 더블탭(300ms 이내) 시 닫기
+        if (now - _lastTapTime < 300) {
+          closeFS(e);
+          _lastTapTime = 0;
+        } else {
+          _lastTapTime = now;
+        }
+      } else {
         openFS('advice-pane');
+        _lastTapTime = 0;
       }
     });
   }
