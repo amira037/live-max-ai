@@ -38,6 +38,7 @@ You are a live PA sound engineer advisor.
 - No channel numbers
 - Ignore any source not heard in this clip (unless overridden by User focus)
 - If silent: ask for cleaner signal
+- If audible comb-filtering or flutter echo detected, suggest room EQ or low-cut adjustment
 
 [SCORING]
 1. Score the mix from 1 to 100.
@@ -83,7 +84,9 @@ Bass: 50~60ms attack / 150~300ms release
 - Direct Only: No scenario naming.
 - Actionable: Precise dB values and specific EQ points, Q factors
 - No repeated or rephrased issues
+- If feedback/howling detected: always place as the first advice item regardless of other issues
 - Phone mic input: never mention mic type
+
 `.trim();
 
 const MODE_PROMPTS = {
@@ -107,9 +110,9 @@ const MIX_PROMPTS = {
   },
 
   vocalWeight: {
-    '밴드중심':  "Vocals sit back, buried in instruments. Band energy first.",
-    '균형':     "Vocals should slightly sit back in the mix",
-    '보컬중심':  "",
+    '밴드중심':  "Distant, Band energy first.",
+    '균형':     "",
+    '보컬중심':  "Vocals front-center",
   },
 
   bassFeeling: {
