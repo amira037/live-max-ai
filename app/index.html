@@ -1,0 +1,3769 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>LIVE MAX AI</title>
+
+<!-- PWA -->
+<link rel="manifest" href="/app/manifest.json">
+<meta name="theme-color" content="#080a0e">
+
+<!-- iOS / iPadOS -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LIVE MAX AI">
+<link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+<link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512x512.png">
+
+<!-- Android Chrome -->
+<meta name="mobile-web-app-capable" content="yes">
+
+<!-- 데스크톱 -->
+<meta name="application-name" content="LIVE MAX AI">
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  LIVE MAX AI — Mix Preference Prompt Configuration (inlined)
+// ═══════════════════════════════════════════════════════════════
+
+const SYSTEM_PROMPT = `
+You are a live PA sound engineer advisor.
+- Live PA only: consider feedback, room reflections, audience absorption
+- Harsh zone 2.5~5kHz / sibilance 6~8kHz: advise only if severe and clearly audible
+- Use: fader(db), group fader(db), compressor (Ratio/Attack/MakeupGain), EQ (with Q), low-cut, high-cut, shelving, reverb
+- Group Balance: Lead vs. Backing, Rhythm vs. Melody, Transient vs. Sustain, Vox vs Inst, 
+
+[CONSTRAINTS]
+- No channel numbers
+- Ignore any source not heard in this clip (unless overridden by User focus)
+- If silent: ask for cleaner signal
+- If audible comb-filtering or flutter echo detected, suggest room EQ or low-cut adjustment
+
+[SCORING]
+1. Score the mix from 1 to 100.
+   - Sweetness (pleasant tone,harsh zone control): /30
+   - Fullness (low-end body, spectral completeness): /30
+   - Balance (channels, low-high frequency, group): /20
+   - Clarity (definition, no masking): /20
+   Sum the four scores for the total.
+
+   Anchor references:
+   - Silent or near-silent clip: output no SCORE line
+   - 30–50: Severe problems across multiple dimensions → provide improvement advice
+   - 55–69: Noticeable issues but listenable → provide improvement advice
+   - 70–84: Good mix with minor issues → briefly mention what works well, suggest 1–2 improvements
+   - 85–98: Excellent, professional-level → describe what sounds outstanding
+   Output the total as the very first line: SCORE:85
+   On the very next line after SCORE, list detected instruments/vocals: CHANNELS:Vocal,Kick,Bass
+   Only include channels actually heard. Omit this line if nothing is detected.
+   
+[CORE MIXING PROTOCOL]
+1. SCOPE CHECK
+Band: Fader Balance → Group Balance → Frequency Masking → Precision EQ.
+Solo: Tonal EQ → Dynamics → Reverb.
+
+2. BAND HIERARCHY (Scenario A)
+Balance First: overall level relationship across all elements
+Group Balance : Detect Groups and Evaluate the level and balance, advise group Fader levels (+/- dB)
+Anti-Masking: Resolve frequency clashes between parts.
+*Never jump to vocal tone advice before checking overall balance first.
+
+3. SOLO PRECISION (Scenario B)
+Tone Fix: Fundamental EQ correction.
+Dynamics: Compression / Gate / Ambience.
+
+4. Reference Compressing
+Vocal: 10~30ms attack / 1~5ms for harsh peaks
+Drum: 15~30ms attack / 50~100ms release
+Bass: 50~60ms attack / 150~300ms release
+
+[OUTPUT]
+- First line: one positive summary sentence
+- 1–3 actionable advice items. Always name the instrument.
+- Direct Only: No scenario naming.
+- Actionable: Precise dB values and specific EQ points, Q factors
+- No repeated or rephrased issues
+- If feedback/howling detected: always place as the first advice item regardless of other issues
+- Phone mic input: never mention mic type
+
+`.trim();
+
+const MODE_PROMPTS = {
+  music:  "",
+  speech: "Speech intelligibility is the absolute priority.",
+};
+
+// ── 한글 키 → 숫자 인덱스 매핑 (HTML의 seg-btn 텍스트와 정확히 일치) ──
+const MIX_PROMPTS = {
+
+  soundDensity: {
+    '두껍게':    "Thick, dense, layered mix.",
+    '중립':      "Balanced",
+    '깔끔하게':  "Clean, separated mix. Remove low-mid buildup.",
+  },
+
+  vocalTone: {
+    '부드럽게':  "Warm, smooth vocals, full in the low-mids. Suppress harsh/sibilance zones.",
+    '중립':     "Sweet and mellow vocal",
+    '명료하게':  "Clear, open vocals. Avoid fatigue-causing boosts.",
+  },
+
+  vocalWeight: {
+    '밴드중심':  "Distant, Band energy first.",
+    '균형':     "",
+    '보컬중심':  "Vocals front-center",
+  },
+
+  bassFeeling: {
+    '타이트':    "low end tight. Actively remove low-end buildup or booming.",
+    '중립':     "Neat, flat low-end",
+    '풍성하게':  "warm and full low end. Preserve a spacious, rounded low-end sound.",
+  },
+
+  drumPunch: {
+    '자연스럽게': "Drums should sit back, Subtle, supportive drums",
+    '중립':     "Controlled, well compressed,not peaky",
+    '강하게':    "Enhance kick and snare attack and punch. energetic and driving.",
+  },
+
+  speechClarity: {
+    '자연스럽게':"Speech should sound comfortable and natural. Suppress harsh and sibilance zones. Preserve low-mid depth for both male and female speakers.",
+    '중립':      "",
+    '최대명료도':"Consonants and articulation must be clearly heard. Prioritize removing masking elements.",
+  },
+};
+
+function buildMixPrompt(mixPref) {
+  const lang = (typeof state !== 'undefined' && state.lang) || 'ko';
+  const lines = [];
+  const mode = mixPref.type; // 'music' | 'speech' | 'mixed'
+
+  lines.push(SYSTEM_PROMPT);
+  lines.push(lang === 'en' ? 'Always respond in English.' : 'Always respond in Korean.');
+  lines.push('');
+
+  const modePrompt = MODE_PROMPTS[mode];
+  if (modePrompt) {
+    lines.push('[Event type]');
+    lines.push(modePrompt);
+    lines.push('');
+  }
+
+  lines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
+
+  // 공통 — 사운드 밀도
+  const density = MIX_PROMPTS.soundDensity[mixPref.density];
+  if (density) lines.push(`Sound density: ${density}`);
+
+  // 음악 / 혼합 모드
+  if (mode === 'music' || mode === 'mixed') {
+    const vocal = mixPref.vocal || 'yes'; // 'none' | 'yes' | 'leader'
+
+    if (vocal === 'none') {
+      lines.push('Vocal: No vocals in this mix. Do not give any vocal-related advice.');
+    } else {
+      if (vocal === 'leader') {
+        lines.push('Vocal: There is a lead speaker whose voice must always be slightly more prominent than other vocalists.');
+      }
+      const vt = MIX_PROMPTS.vocalTone[mixPref.vocalTone];
+      const vw = MIX_PROMPTS.vocalWeight[mixPref.vocalWeight];
+      if (vt) lines.push(`Vocal tone: ${vt}`);
+      if (vw) lines.push(`Vocal weight: ${vw}`);
+    }
+
+    const bf = MIX_PROMPTS.bassFeeling[mixPref.lowFeel];
+    const dp = MIX_PROMPTS.drumPunch[mixPref.drumPunch];
+    if (bf) lines.push(`Low end: ${bf}`);
+    if (dp) lines.push(`Drums: ${dp}`);
+  }
+
+  // 스피치 / 혼합 모드
+  if (mode === 'speech' || mode === 'mixed') {
+    const sc = MIX_PROMPTS.speechClarity[mixPref.clarity];   // HTML 키: clarity
+    if (sc) lines.push(`Speech clarity: ${sc}`);
+  }
+
+  return lines.filter(l => l !== undefined).join('\n');
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+
+:root {
+  --base: clamp(11px, 2.2vw, 20px);
+  --xs:   calc(var(--base) * 0.7);
+  --sm:   calc(var(--base) * 0.85);
+  --md:   calc(var(--base) * 1.0);
+  --lg:   calc(var(--base) * 1.3);
+  --xl:   calc(var(--base) * 1.8);
+  --2xl:  calc(var(--base) * 2.6);
+  --huge: calc(var(--base) * 4.5);
+
+  --bg:       #080a0e;
+  --surface:  #0f1218;
+  --surface2: #161b24;
+  --surface3: #1e2530;
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.13);
+  --text:     #e2e8f0;
+  --muted:    #4a5568;
+  --muted2:   #718096;
+  --accent:   #00ff88;
+  --accent-d: #00cc6a;
+  --blue:     #4da6ff;
+  --warn:     #ff9500;
+  --danger:   #ff4444;
+  --card-bg:  #131820;
+  --card-sol: #0d1f16;
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-body:    'Noto Sans KR', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+  --r: clamp(8px, 1.5vw, 14px);
+}
+
+html,body { height:100%; background:var(--bg); color:var(--text); font-family:var(--font-body); font-size:var(--md); overflow:hidden; }
+
+/* ── APP SHELL ── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* ── HEADER ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(8px,1.5vw,14px) clamp(12px,2.5vw,24px);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 10;
+}
+.app-name { font-family:var(--font-display); font-size:var(--xl); letter-spacing:0.05em; white-space:nowrap; }
+.app-name span { color:var(--accent); }
+.header-right { display:flex; align-items:center; gap:clamp(8px,1.5vw,16px); }
+.lamp { width:clamp(7px,1.2vw,11px); height:clamp(7px,1.2vw,11px); border-radius:50%; background:var(--muted); transition:all 0.3s; flex-shrink:0; }
+.lamp.active  { background:var(--accent); box-shadow:0 0 8px var(--accent); animation:blink 1.5s infinite; }
+.lamp.rec     { background:var(--danger); box-shadow:0 0 8px var(--danger); animation:blink 0.6s infinite; }
+.lamp.analyze { background:var(--blue);   box-shadow:0 0 8px var(--blue);   animation:blink 0.4s infinite; }
+.lamp-label   { font-family:var(--font-mono); font-size:var(--xs); color:var(--muted2); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+.btn-settings {
+  background:none; border:1px solid var(--border2); border-radius:calc(var(--r)*0.7);
+  padding:clamp(5px,1vw,8px) clamp(10px,1.8vw,16px);
+  color:var(--muted2); font-family:var(--font-display); font-size:var(--sm);
+  letter-spacing:0.08em; cursor:pointer; transition:all 0.2s;
+}
+.btn-settings:hover { color:var(--text); border-color:var(--border2); }
+.btn-settings.active { color:var(--accent); border-color:rgba(0,255,136,0.4); }
+
+/* ── LANGUAGE TOGGLE ── */
+.btn-lang {
+  display:flex; align-items:center; cursor:pointer;
+  border-radius:99px; overflow:hidden;
+  border:1px solid var(--border2); flex-shrink:0;
+  font-family:var(--font-mono); letter-spacing:0.06em;
+}
+.btn-lang span {
+  padding:3px 9px; font-size:var(--xs); transition:all 0.2s;
+}
+@media (max-width: 767px) and (orientation: portrait) {
+  .btn-lang span { font-size:13px !important; padding:6px 11px !important; }
+}
+
+/* ── MAIN BODY ── */
+.main-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Portrait: column. Landscape: row */
+@media (orientation: portrait) {
+  .main-body { flex-direction: column; }
+  .graph-pane { flex-shrink: 0; }
+  .advice-pane { flex: 1; min-height: 0; }
+}
+@media (orientation: landscape) {
+  .main-body { flex-direction: row; }
+  .graph-pane { width: 45%; flex-shrink: 0; border-right: 1px solid var(--border); }
+  .advice-pane { flex: 1; min-width: 0; }
+}
+
+/* 데스크톱: 항상 가로 분할 */
+@media (min-width: 1024px) {
+  .main-body { flex-direction: row; }
+  .graph-pane { width: 42%; flex-shrink: 0; border-right: 1px solid var(--border); }
+  .advice-pane { flex: 1; min-width: 0; }
+}
+
+/* 아이패드 가로 */
+@media (min-width: 768px) and (orientation: landscape) {
+  .main-body { flex-direction: row; }
+  .graph-pane { width: 44%; flex-shrink: 0; border-right: 1px solid var(--border); }
+  .advice-pane { flex: 1; min-width: 0; }
+}
+
+/* 아이패드 세로 */
+@media (min-width: 768px) and (orientation: portrait) {
+  canvas#meter { height: 200px; }
+}
+
+/* ── GRAPH PANE ── */
+.graph-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  padding: clamp(10px,2vw,18px) clamp(12px,2.5vw,20px) 0;
+  gap: clamp(6px,1.2vw,12px);
+}
+
+canvas#meter {
+  width: 100%;
+  height: clamp(80px,16vw,150px);
+  display: block;
+  border-radius: calc(var(--r)*0.5);
+  background: var(--surface);
+}
+
+.freq-labels {
+  display:flex; justify-content:space-between; padding:0 2px;
+}
+.freq-labels span { font-family:var(--font-mono); font-size:var(--xs); color:var(--muted); }
+
+/* Controls row */
+.controls-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--surface);
+  border-radius: var(--r);
+  flex-shrink: 0;
+}
+.controls-toggle-header {
+  display: none;
+}
+.controls-collapsible {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(4px,0.8vw,8px);
+  padding: clamp(8px,1.5vw,14px);
+}
+
+.ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px,1.5vw,14px);
+}
+.ctrl-label {
+  font-family: var(--font-mono);
+  font-size: var(--xs);
+  color: var(--muted2);
+  white-space: nowrap;
+  width: 3.5em;
+}
+.ctrl-val {
+  font-family: var(--font-mono);
+  font-size: var(--xs);
+  color: var(--accent);
+  min-width: 4em;
+  text-align: right;
+}
+input[type=range] {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+  height: clamp(14px,2vw,20px);
+}
+.ctrl-rst {
+  background:none; border:1px solid var(--border2); border-radius:4px;
+  padding:2px 7px; color:var(--muted2); font-size:var(--xs);
+  cursor:pointer; font-family:var(--font-mono); transition:all 0.2s;
+  white-space:nowrap;
+}
+.ctrl-rst:hover { border-color:var(--accent); color:var(--accent); }
+
+.toggle-switch { position:relative; width:clamp(36px,6vw,52px); height:clamp(20px,3.2vw,28px); cursor:pointer; }
+.toggle-switch input { display:none; }
+.toggle-track { position:absolute; inset:0; background:var(--surface3); border-radius:99px; border:1px solid var(--border2); transition:all 0.25s; }
+.toggle-switch input:checked + .toggle-track { background:var(--accent-d); border-color:var(--accent); }
+.toggle-knob { position:absolute; top:3px; left:3px; width:calc(clamp(20px,3.2vw,28px) - 6px); height:calc(clamp(20px,3.2vw,28px) - 6px); background:var(--muted2); border-radius:50%; transition:all 0.25s; }
+.toggle-switch input:checked ~ .toggle-knob { left:calc(clamp(36px,6vw,52px) - clamp(20px,3.2vw,28px) + 3px); background:#fff; }
+
+.ctrl-divider { height:1px; background:var(--border); margin:2px 0; }
+.ctrl-rt-label { flex:1; font-family:var(--font-mono); font-size:var(--xs); color:var(--muted); }
+
+/* ── MIC BUTTON ── */
+.mic-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(10px,2vw,18px) 0 max(clamp(12px,2.5vw,20px), env(safe-area-inset-bottom));
+  gap: clamp(6px,1vw,10px);
+  flex-shrink: 0;
+}
+
+.mic-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: clamp(70px,14vw,110px);
+  height: clamp(70px,14vw,110px);
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 2px solid var(--border2);
+  cursor: pointer;
+  transition: all 0.25s;
+  gap: 2px;
+  position: relative;
+}
+.mic-btn::after {
+  content:'';
+  position:absolute; inset:0; border-radius:50%;
+  background:radial-gradient(circle, rgba(0,255,136,0.08), transparent 70%);
+  opacity:0; transition:opacity 0.3s;
+}
+.mic-btn:hover::after { opacity:1; }
+.mic-btn:hover { border-color:var(--accent); }
+.mic-btn.recording { border-color:var(--danger); background:rgba(255,68,68,0.1); animation:micPulse 0.6s infinite; }
+.mic-btn.analyzing { border-color:var(--blue); background:rgba(77,166,255,0.08); }
+@keyframes micPulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,68,68,0.4)} 50%{box-shadow:0 0 0 8px rgba(255,68,68,0)} }
+
+.mic-icon  { font-size:var(--huge); line-height:1; }
+.mic-label { font-family:var(--font-display); font-size:var(--sm); letter-spacing:0.12em; color:var(--muted2); transition:color 0.2s; }
+.mic-btn:hover .mic-label { color:var(--accent); }
+.mic-btn.recording .mic-label { color:var(--danger); }
+.mic-btn.analyzing .mic-label { color:var(--blue); }
+
+.countdown { font-family:var(--font-display); font-size:var(--2xl); color:var(--danger); letter-spacing:0.05em; min-height:var(--2xl); line-height:1; }
+
+/* ── ADVICE PANE ── */
+.advice-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.advice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(8px,1.5vw,12px) clamp(12px,2.5vw,20px);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.advice-title { font-family:var(--font-mono); font-size:var(--xs); color:var(--muted); letter-spacing:0.1em; text-transform:uppercase; }
+
+.rt-toggle-row { display:flex; align-items:center; gap:8px; }
+.rt-toggle-label { font-family:var(--font-mono); font-size:var(--xs); color:var(--muted2); }
+
+.cards-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: clamp(10px,2vw,18px) clamp(12px,2.5vw,20px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px,2vw,18px);
+}
+
+.advice-notice {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: clamp(8px,1.5vw,12px) clamp(12px,2.5vw,20px);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--md);
+  color: var(--fg);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.notice-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  line-height: 1.4;
+  font-family: var(--font-mono);
+  transition: color 0.15s, border-color 0.15s;
+}
+.notice-toggle-btn:hover { color: var(--fg); border-color: var(--muted); }
+
+@media (max-width: 767px) and (orientation: portrait) {
+  .advice-notice {
+    font-size: clamp(12px, 4.5vw, 15px);
+    padding: clamp(10px, 2vw, 14px) clamp(12px, 2.5vw, 20px);
+  }
+}
+
+/* ── CARDS ── */
+.card-group { display:flex; flex-direction:column; gap:clamp(5px,0.8vw,8px); }
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--xs);
+  color: var(--muted);
+}
+.card-badge {
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: var(--xs);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+.badge-maxai   { background:rgba(77,166,255,0.15); color:var(--blue); border:1px solid rgba(77,166,255,0.2); }
+.badge-rt      { background:rgba(0,255,136,0.1);   color:var(--accent); border:1px solid rgba(0,255,136,0.2); }
+
+.card-problem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: clamp(10px,1.8vw,16px) clamp(12px,2vw,18px);
+  background: var(--card-bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  font-size: var(--md);
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.5;
+}
+.card-problem-text {
+  flex: 1;
+  min-width: 0;
+}
+.mix-score {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 5vw, 40px);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.mix-score.score-good    { color: var(--accent); }
+.mix-score.score-ok      { color: var(--warn); }
+.mix-score.score-bad     { color: var(--danger); }
+.card-problem.cheer {
+  border-color: rgba(0,255,136,0.2);
+  background: rgba(0,255,136,0.04);
+  color: var(--accent);
+}
+.card-solution {
+  display:flex; align-items:center; gap:clamp(8px,1.5vw,12px);
+  padding: clamp(9px,1.6vw,13px) clamp(12px,2vw,18px);
+  background: var(--card-sol);
+  border: 1px solid rgba(0,255,136,0.18);
+  border-radius: calc(var(--r)*0.8);
+  font-family: var(--font-mono);
+  font-size: var(--sm);
+  color: var(--accent);
+  font-weight: 500;
+}
+.sol-icon { font-size:var(--md); flex-shrink:0; }
+
+.thinking-card {
+  display:flex; align-items:center; gap:clamp(6px,1vw,10px);
+  padding: clamp(12px,2vw,16px) clamp(12px,2vw,18px);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  font-family: var(--font-mono);
+  font-size: var(--sm);
+  color: var(--muted2);
+}
+.thinking-dots { display:flex; gap:4px; }
+.thinking-dots span {
+  width:clamp(5px,1vw,8px); height:clamp(5px,1vw,8px);
+  border-radius:50%; background:var(--blue); animation:think 1.2s infinite;
+}
+.thinking-dots span:nth-child(2){animation-delay:0.2s}
+.thinking-dots span:nth-child(3){animation-delay:0.4s}
+@keyframes think{0%,100%{opacity:0.3;transform:scale(0.8)}50%{opacity:1;transform:scale(1.2)}}
+
+.card-anim { animation: fadeUp 0.3s ease; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px,1.5vw,14px);
+  padding: clamp(30px,6vw,60px) 20px;
+  color: var(--muted);
+  text-align: center;
+}
+.empty-icon { font-size:calc(var(--huge)*0.8); opacity:0.3; }
+.empty-text { font-family:var(--font-mono); font-size:var(--sm); line-height:1.7; }
+
+/* ── HOWLING BAR ── */
+.howl-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.howl-bar.show { transform:translateY(0); }
+.howl-bar-inner {
+  display:flex; align-items:center; gap:clamp(8px,1.5vw,14px);
+  padding: clamp(10px,1.8vw,14px) clamp(14px,2.5vw,22px);
+  background: rgba(255,68,68,0.12);
+  border-top: 1px solid rgba(255,68,68,0.4);
+  animation: howlPulse 2s infinite;
+}
+.howl-bar.dismissed .howl-bar-inner { animation:none; background:rgba(255,68,68,0.05); border-top-color:rgba(255,68,68,0.15); }
+@keyframes howlPulse{0%,100%{border-top-color:rgba(255,68,68,0.4)}50%{border-top-color:rgba(255,68,68,0.8)}}
+.howl-bar-icon { font-size:var(--lg); flex-shrink:0; }
+.howl-bar.dismissed .howl-bar-icon { opacity:0.4; }
+.howl-bar-text { flex:1; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.howl-bar-title { font-size:var(--sm); font-weight:700; color:var(--danger); }
+.howl-bar.dismissed .howl-bar-title { color:var(--muted2); }
+.howl-bar-freq { font-family:var(--font-mono); font-size:var(--sm); color:var(--danger); font-weight:500; }
+.howl-bar.dismissed .howl-bar-freq { color:var(--muted2); }
+.howl-bar-time { font-family:var(--font-mono); font-size:var(--xs); color:var(--muted); white-space:nowrap; }
+.howl-bar-close {
+  background:none; border:1px solid rgba(255,68,68,0.3); border-radius:50%;
+  width:clamp(22px,3.5vw,30px); height:clamp(22px,3.5vw,30px);
+  color:var(--danger); font-size:var(--xs); cursor:pointer;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all 0.2s;
+}
+.howl-bar-close:hover { background:rgba(255,68,68,0.15); }
+
+/* ── SETTINGS OVERLAY ── */
+.settings-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 50;
+  display: none;
+  justify-content: flex-end;
+}
+.settings-overlay.show { display:flex; }
+.settings-panel {
+  width: min(420px, 100%);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideIn 0.3s ease;
+}
+@keyframes slideIn { from{transform:translateX(100%)} to{transform:none} }
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(12px,2vw,18px) clamp(14px,2.5vw,22px);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.settings-title { font-family:var(--font-display); font-size:var(--xl); letter-spacing:0.05em; }
+.settings-close {
+  background:none; border:1px solid var(--border2); border-radius:50%;
+  width:clamp(28px,4vw,36px); height:clamp(28px,4vw,36px);
+  color:var(--muted2); font-size:var(--md); cursor:pointer;
+  display:flex; align-items:center; justify-content:center; transition:all 0.2s;
+}
+.settings-close:hover { color:var(--text); border-color:var(--border2); }
+
+.settings-inner {
+  flex:1; overflow-y:auto;
+  padding: clamp(14px,2.5vw,22px);
+  display:flex; flex-direction:column; gap:clamp(18px,3vw,28px);
+}
+
+.setting-section { display:flex; flex-direction:column; gap:clamp(8px,1.5vw,12px); }
+.setting-section-title {
+  font-family:var(--font-mono); font-size:var(--xs); color:var(--muted);
+  letter-spacing:0.12em; text-transform:uppercase;
+  padding-bottom:clamp(6px,1vw,8px); border-bottom:1px solid var(--border);
+}
+
+.radio-group { display:flex; flex-direction:column; gap:clamp(5px,0.8vw,8px); }
+.radio-option {
+  display:flex; align-items:center; gap:clamp(8px,1.5vw,14px);
+  padding:clamp(9px,1.6vw,13px) clamp(12px,2vw,16px);
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:calc(var(--r)*0.8); cursor:pointer; transition:all 0.2s;
+}
+.radio-option:hover { border-color:var(--border2); }
+.radio-option.selected { border-color:var(--accent); background:rgba(0,255,136,0.06); }
+.radio-dot { width:clamp(14px,2.2vw,18px); height:clamp(14px,2.2vw,18px); border-radius:50%; border:2px solid var(--muted); display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all 0.2s; }
+.radio-option.selected .radio-dot { border-color:var(--accent); }
+.radio-dot-inner { width:50%; height:50%; border-radius:50%; background:var(--accent); display:none; }
+.radio-option.selected .radio-dot-inner { display:block; }
+.radio-text { font-size:var(--sm); color:var(--text); }
+.radio-sub  { font-size:var(--xs); color:var(--muted2); font-family:var(--font-mono); margin-top:2px; }
+
+.api-input {
+  width:100%; background:var(--surface2); border:1px solid var(--border);
+  border-radius:calc(var(--r)*0.8); padding:clamp(9px,1.6vw,13px) clamp(12px,2vw,16px);
+  color:var(--text); font-family:var(--font-mono); font-size:var(--sm); outline:none; transition:border-color 0.2s;
+}
+.api-input:focus { border-color:var(--blue); }
+.api-input::placeholder { color:var(--muted); }
+
+.channel-view { display:flex; flex-direction:column; gap:2px; }
+.channel-item {
+  display:flex; align-items:center; gap:clamp(8px,1.5vw,12px);
+  padding:clamp(8px,1.4vw,12px) clamp(12px,2vw,16px);
+  background:var(--surface2); border:1px solid var(--border); font-size:var(--sm); transition:all 0.2s;
+}
+.channel-item:first-child{border-radius:var(--r) var(--r) 0 0}
+.channel-item:last-child{border-radius:0 0 var(--r) var(--r)}
+.channel-item:only-child{border-radius:var(--r)}
+.channel-item+.channel-item{border-top:none}
+.ch-num{font-family:var(--font-mono);font-size:var(--xs);color:var(--muted);width:1.8em;text-align:right;flex-shrink:0}
+.ch-name{flex:1;color:var(--text)}
+
+.channel-textarea {
+  width:100%; background:var(--surface2); border:1px solid var(--border2);
+  border-radius:var(--r); padding:clamp(10px,1.8vw,14px) clamp(12px,2vw,16px);
+  color:var(--text); font-family:var(--font-body); font-size:var(--sm); outline:none;
+  resize:none; min-height:clamp(90px,18vw,160px); line-height:1.8; transition:border-color 0.2s;
+}
+.channel-textarea:focus{border-color:var(--blue)}
+.channel-textarea::placeholder{color:var(--muted)}
+.ch-hint{font-family:var(--font-mono);font-size:var(--xs);color:var(--muted);margin-top:4px}
+
+.preset-list{display:flex;flex-direction:column;gap:clamp(4px,0.7vw,7px)}
+.preset-item {
+  display:flex;align-items:center;gap:clamp(6px,1vw,10px);
+  padding:clamp(8px,1.4vw,12px) clamp(12px,2vw,16px);
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:calc(var(--r)*0.8);cursor:pointer;transition:all 0.2s;
+}
+.preset-item:hover{border-color:var(--border2)}
+.preset-item.active{border-color:var(--accent);background:rgba(0,255,136,0.05)}
+.preset-dot{width:clamp(7px,1.2vw,10px);height:clamp(7px,1.2vw,10px);border-radius:50%;border:2px solid var(--muted);flex-shrink:0;transition:all 0.2s}
+.preset-item.active .preset-dot{background:var(--accent);border-color:var(--accent)}
+.preset-name{flex:1;font-size:var(--sm);color:var(--text)}
+.preset-count{font-family:var(--font-mono);font-size:var(--xs);color:var(--muted)}
+.preset-actions{display:flex;gap:4px}
+.preset-btn{background:none;border:1px solid var(--border);border-radius:calc(var(--r)*0.5);padding:3px 8px;color:var(--muted2);font-size:var(--xs);cursor:pointer;transition:all 0.2s}
+.preset-btn:hover{border-color:var(--accent);color:var(--accent)}
+.preset-btn.del:hover{border-color:var(--danger);color:var(--danger)}
+
+.btn-row{display:flex;gap:clamp(6px,1vw,10px)}
+.btn{flex:1;padding:clamp(9px,1.6vw,14px);border-radius:calc(var(--r)*0.8);border:none;font-family:var(--font-body);font-size:var(--sm);font-weight:700;cursor:pointer;transition:all 0.2s}
+.btn-primary{background:var(--accent);color:#000}
+.btn-primary:hover{background:#33ffaa}
+.btn-secondary{background:var(--surface3);color:var(--text);border:1px solid var(--border2)}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
+.btn-detect{background:none;border:1px solid rgba(0,255,136,0.3);color:var(--accent)}
+.btn-detect:hover{background:rgba(0,255,136,0.08)}
+
+.memo-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:calc(var(--r)*0.8);padding:clamp(9px,1.6vw,13px) clamp(12px,2vw,16px);color:var(--text);font-family:var(--font-body);font-size:var(--sm);outline:none;resize:none;min-height:clamp(60px,12vw,80px);transition:border-color 0.2s}
+.memo-input:focus{border-color:var(--blue)}
+.memo-input::placeholder{color:var(--muted)}
+.situation-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.sit-chip{padding:5px 13px;border-radius:99px;border:1px solid var(--border2);background:var(--surface2);color:var(--muted2);font-size:var(--xs);cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;font-family:var(--font-body)}
+.sit-chip:hover{border-color:var(--accent);color:var(--accent)}
+.sit-chip.active{border-color:var(--accent);background:rgba(0,255,136,0.1);color:var(--accent)}
+.situation-input-row{display:flex;gap:6px}
+.situation-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:calc(var(--r)*0.8);padding:clamp(8px,1.4vw,11px) clamp(10px,1.8vw,14px);color:var(--text);font-family:var(--font-body);font-size:var(--sm);outline:none}
+.situation-input:focus{border-color:var(--blue)}
+.situation-input::placeholder{color:var(--muted)}
+.btn-add-sit{background:none;border:1px solid rgba(0,255,136,0.3);border-radius:calc(var(--r)*0.8);color:var(--accent);font-size:var(--sm);padding:0 14px;cursor:pointer;white-space:nowrap;transition:all 0.2s}
+.btn-add-sit:hover{background:rgba(0,255,136,0.08)}
+
+/* ── ACCORDION ── */
+.acc-title{display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:var(--xs);color:var(--muted);letter-spacing:0.12em;text-transform:uppercase;padding-bottom:clamp(6px,1vw,8px);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;transition:color 0.2s;}
+.acc-title:hover{color:var(--text);}
+.acc-arrow{font-size:var(--xs);transition:transform 0.2s;flex-shrink:0;}
+.acc-body{overflow:hidden;max-height:0;transition:max-height 0.35s ease;display:flex;flex-direction:column;gap:clamp(8px,1.5vw,12px);}
+.acc-body.open{max-height:1400px;padding-top:clamp(8px,1.5vw,12px);}
+
+/* ── SEGMENT BUTTONS ── */
+.seg-row{display:flex;flex-direction:column;gap:clamp(3px,0.5vw,5px);}
+.seg-label{font-family:var(--font-mono);font-size:var(--xs);color:var(--muted2);}
+.seg-group{display:flex;gap:4px;}
+.seg-btn{flex:1;padding:clamp(6px,1.1vw,9px) clamp(4px,0.8vw,8px);background:var(--surface2);border:1px solid var(--border);border-radius:calc(var(--r)*0.7);color:var(--muted2);font-family:var(--font-body);font-size:clamp(10px,1.8vw,13px);cursor:pointer;text-align:center;transition:all 0.2s;line-height:1.2;}
+.seg-btn:hover{border-color:var(--border2);color:var(--text);}
+.seg-btn.active{border-color:var(--accent);background:rgba(0,255,136,0.1);color:var(--accent);}
+
+/* detect result */
+.detect-result{display:none;flex-direction:column;gap:clamp(6px,1vw,10px)}
+
+/* modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:clamp(16px,3vw,26px);width:100%;max-width:380px;display:flex;flex-direction:column;gap:clamp(12px,2vw,18px)}
+.modal-title{font-family:var(--font-display);font-size:var(--xl);letter-spacing:0.05em}
+.modal-input{background:var(--surface2);border:1px solid var(--border2);border-radius:calc(var(--r)*0.7);padding:clamp(9px,1.6vw,13px) clamp(12px,2vw,16px);color:var(--text);font-family:var(--font-body);font-size:var(--md);outline:none;width:100%}
+.modal-input:focus{border-color:var(--accent)}
+
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── TUTORIAL ── */
+#tutorial-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: all;
+}
+#tutorial-highlight-box {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9001;
+  border-radius: var(--r);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.78),
+              0 0 0 2px var(--accent),
+              0 0 20px rgba(0,255,136,0.35);
+  transition: left 0.32s cubic-bezier(.4,0,.2,1),
+              top  0.32s cubic-bezier(.4,0,.2,1),
+              width  0.32s cubic-bezier(.4,0,.2,1),
+              height 0.32s cubic-bezier(.4,0,.2,1);
+}
+#tutorial-bubble {
+  position: fixed;
+  z-index: 9002;
+  background: var(--surface);
+  border: 1px solid rgba(0,255,136,0.3);
+  border-radius: var(--r);
+  padding: clamp(14px,2.5vw,20px) clamp(16px,3vw,22px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px,1.8vw,14px);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  max-width: min(88vw, 360px);
+  transition: left 0.32s cubic-bezier(.4,0,.2,1),
+              top  0.32s cubic-bezier(.4,0,.2,1),
+              bottom 0.32s cubic-bezier(.4,0,.2,1);
+}
+/* arrow pointing up — bubble is below target */
+#tutorial-bubble[data-arrow="top"]::before {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: var(--arrow-x, 50%);
+  transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 9px solid rgba(0,255,136,0.3);
+}
+#tutorial-bubble[data-arrow="top"]::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: var(--arrow-x, 50%);
+  transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 8px solid var(--surface);
+}
+/* arrow pointing down — bubble is above target */
+#tutorial-bubble[data-arrow="bottom"]::before {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: var(--arrow-x, 50%);
+  transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 9px solid rgba(0,255,136,0.3);
+}
+#tutorial-bubble[data-arrow="bottom"]::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: var(--arrow-x, 50%);
+  transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--surface);
+}
+#tutorial-text {
+  font-family: var(--font-body);
+  font-size: clamp(13px, 2.2vw, 15px);
+  color: var(--text);
+  line-height: 1.65;
+}
+#tutorial-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#tutorial-step-indicator {
+  font-family: var(--font-mono);
+  font-size: var(--xs);
+  color: var(--muted2);
+}
+#tutorial-skip-btn {
+  background: none;
+  border: none;
+  color: var(--muted2);
+  font-size: var(--sm);
+  font-family: var(--font-body);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+#tutorial-skip-btn:hover { color: var(--text); }
+#tutorial-next-btn {
+  background: var(--accent);
+  border: none;
+  color: #000;
+  font-weight: 700;
+  font-family: var(--font-body);
+  font-size: var(--sm);
+  cursor: pointer;
+  padding: clamp(7px,1.2vw,10px) clamp(14px,2.5vw,20px);
+  border-radius: calc(var(--r) * 0.7);
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+#tutorial-next-btn:hover { background: var(--accent-d); }
+
+@media (max-width: 767px) {
+  #tutorial-bubble {
+    padding: 20px 22px !important;
+    gap: 18px !important;
+    max-width: min(92vw, 400px) !important;
+  }
+  #tutorial-text {
+    font-size: clamp(16px, 4.5vw, 19px) !important;
+    line-height: 1.7 !important;
+  }
+  #tutorial-step-indicator {
+    font-size: 15px !important;
+  }
+  #tutorial-skip-btn {
+    font-size: 15px !important;
+    padding: 6px 10px !important;
+  }
+  #tutorial-next-btn {
+    font-size: 17px !important;
+    padding: 13px 28px !important;
+  }
+}
+
+/* ── 모바일: 헤더 패딩 타이트하게 ── */
+@media (max-width: 768px) {
+  header {
+    padding: 5px 8px !important;
+  }
+}
+
+/* ── 모바일 세로: 컨트롤·헤더 크게 ── */
+@media (max-width: 767px) and (orientation: portrait) {
+  /* 헤더 설정 버튼 */
+  .btn-settings {
+    font-size: 16px !important;
+    padding: 10px 18px !important;
+    border-radius: 8px !important;
+  }
+  /* 헤더 램프 + 라벨 */
+  .lamp { width: 12px !important; height: 12px !important; }
+  .lamp-label { font-size: 13px !important; }
+
+  /* 컨트롤 영역 */
+  .controls-toggle-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--muted2);
+    user-select: none;
+    border-radius: var(--r);
+    letter-spacing: 0.05em;
+  }
+  .controls-toggle-header:active { opacity: 0.7; }
+  .controls-collapsible {
+    overflow: hidden;
+    transition: height 0.3s ease;
+  }
+  .controls-collapsible.is-collapsed {
+    height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  .controls-collapsible {
+    gap: 10px !important;
+    padding: 14px !important;
+  }
+  .ctrl-row { gap: 12px !important; }
+  .ctrl-label { font-size: 14px !important; width: 3.8em !important; }
+  .ctrl-val   { font-size: 14px !important; min-width: 4.5em !important; }
+  .ctrl-rst   { font-size: 13px !important; padding: 6px 12px !important; border-radius: 6px !important; }
+  .ctrl-divider { margin: 4px 0 !important; }
+
+  /* 슬라이더 */
+  input[type=range] { height: 28px !important; }
+
+  /* AUTO 토글 스위치 */
+  .toggle-switch { width: 52px !important; height: 30px !important; }
+  .toggle-knob   { width: 22px !important; height: 22px !important; top: 4px !important; left: 4px !important; }
+  .toggle-switch input:checked ~ .toggle-knob { left: 26px !important; }
+
+  /* 저역보정/FLAT 소스 토글 */
+  #source-toggle { margin-left: 6px !important; }
+  #src-mobile-btn, #src-line-btn {
+    font-size: 13px !important;
+    padding: 6px 11px !important;
+  }
+
+  /* 실시간 라벨 */
+  .ctrl-rt-label { font-size: 13px !important; }
+}
+
+/* ── 태블릿 세로(768~1023px): 컨트롤 토글 헤더 활성화 ── */
+@media (min-width: 768px) and (max-width: 1023px) and (orientation: portrait) {
+  .controls-toggle-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 11px 14px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--muted2);
+    user-select: none;
+    border-radius: var(--r);
+    letter-spacing: 0.05em;
+  }
+  .controls-toggle-header:active { opacity: 0.7; }
+  .controls-collapsible {
+    overflow: hidden;
+    transition: height 0.3s ease;
+  }
+  .controls-collapsible.is-collapsed {
+    height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+}
+
+/* ── 모바일 설정 패널 폰트 크게 ── */
+@media (max-width: 768px) {
+  /* 조언 텍스트 폰트 확대 */
+  .card-problem {
+    font-size: clamp(17px, 4.5vw, 22px);
+  }
+  .mix-score {
+    font-size: clamp(32px, 7vw, 44px);
+  }
+  .card-solution {
+    font-size: clamp(15px, 4vw, 19px);
+  }
+
+  /* 조언 헤더 숨김 */
+  .advice-header {
+    display: none !important;
+  }
+
+  /* 녹음 버튼 영역 패딩 축소 */
+  .mic-wrap {
+    padding: clamp(6px, 1.2vw, 10px) 0 clamp(8px, 1.5vw, 12px);
+    gap: clamp(4px, 0.8vw, 7px);
+  }
+
+  /* 조언 카드 스크롤 영역 패딩/gap 축소 */
+  .cards-scroll {
+    padding: clamp(7px, 1.5vw, 12px) clamp(10px, 2vw, 16px);
+    gap: clamp(7px, 1.5vw, 12px);
+  }
+
+}
+
+@media (max-width: 767px) {
+  .settings-panel {
+    --xs: 13px;
+    --sm: 15px;
+    --md: 16px;
+  }
+  .setting-section-title { font-size: 13px !important; }
+  .radio-text { font-size: 16px !important; }
+  .radio-sub  { font-size: 13px !important; }
+  .preset-name { font-size: 15px !important; }
+  .preset-count { font-size: 13px !important; }
+  .preset-btn { font-size: 13px !important; padding: 5px 12px !important; }
+  .ch-name { font-size: 15px !important; }
+  .ch-num  { font-size: 13px !important; }
+  .ch-hint { font-size: 12px !important; }
+  .sit-chip { font-size: 14px !important; padding: 8px 16px !important; }
+  .api-input { font-size: 15px !important; }
+  .channel-textarea { font-size: 15px !important; }
+  .memo-input { font-size: 15px !important; }
+  .situation-input { font-size: 15px !important; }
+  .btn { font-size: 15px !important; padding: 12px !important; }
+  .btn-add-sit { font-size: 15px !important; padding: 0 18px !important; }
+  .settings-title { font-size: calc(var(--xl) * 1.15) !important; }
+  .modal-title { font-size: calc(var(--xl) * 1.1) !important; }
+  .modal-input { font-size: 16px !important; }
+}
+
+/* ── 모바일 가로: 컨트롤 접힘 + 레이아웃 압축 ── */
+@media (max-width: 767px) and (orientation: landscape) {
+  /* canvas 높이 축소 */
+  canvas#meter { height: 52px !important; }
+
+  /* graph-pane 패딩/gap 축소 */
+  .graph-pane {
+    padding-top: 6px !important;
+    padding-bottom: 0 !important;
+    gap: 4px !important;
+    overflow-y: auto;
+  }
+
+  /* controls 접힘 토글 헤더 표시 */
+  .controls-toggle-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 7px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted2);
+    user-select: none;
+    border-radius: var(--r);
+    letter-spacing: 0.05em;
+  }
+  .controls-toggle-header:active { opacity: 0.7; }
+  .controls-collapsible {
+    overflow: hidden;
+    transition: height 0.3s ease;
+  }
+  .controls-collapsible.is-collapsed {
+    height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* mic-wrap 압축 */
+  .mic-wrap {
+    padding: 6px 0 8px !important;
+    gap: 5px !important;
+  }
+
+  /* 녹음 버튼 작게 */
+  .mic-btn {
+    width: 62px !important;
+    height: 62px !important;
+  }
+  .mic-icon { font-size: calc(var(--huge) * 0.65) !important; }
+  .mic-label { font-size: 11px !important; }
+
+  /* hint input 작게 */
+  #user-hint-input {
+    width: clamp(70px, 20vw, 130px) !important;
+    font-size: 12px !important;
+    padding: 4px 8px !important;
+  }
+
+  /* MIX/SOLO/SPK 토글 작게 */
+  #analysis-mode-toggle span {
+    padding: 5px 10px !important;
+    font-size: 11px !important;
+  }
+
+  /* advice-header (모바일 ≤768px에서 숨김이므로 그대로) */
+}
+
+/* sit-del 터치 영역 개선 */
+.sit-chip .sit-del {
+  opacity: 0.6;
+  font-size: 12px;
+  padding: 2px 4px;
+  margin-left: 2px;
+  cursor: pointer;
+  min-width: 20px;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sit-chip .sit-del:hover { opacity: 1; color: var(--danger); }
+
+/* ── FULLSCREEN EXPAND (모바일/태블릿 ≤ 1024px) ── */
+/* 데스크톱 포함 전역 기본값: 닫기 버튼 숨김 */
+.fs-close-btn { display: none; }
+.graph-pane, .advice-pane { position: relative; }
+
+@media (max-width: 1024px) {
+  /* 닫기 버튼 스타일 */
+  .fs-close-btn {
+    display: none;
+    position: absolute;
+    top: max(10px, calc(env(safe-area-inset-top) + 8px));
+    right: max(10px, calc(env(safe-area-inset-right) + 8px));
+    z-index: 210;
+    background: rgba(15,18,24,0.88);
+    border: 1px solid var(--border2);
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 0.18s;
+    flex-shrink: 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  }
+  .fs-close-btn:active { background: rgba(255,255,255,0.13); }
+
+  /* 풀스크린 공통 */
+  .graph-pane.fs-open,
+  .advice-pane.fs-open {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    z-index: 200 !important;
+    border-right: none !important;
+    border-top: none !important;
+    animation: fsScaleIn 0.22s cubic-bezier(0.22,1,0.36,1) forwards;
+  }
+
+  /* 그래프 풀스크린 */
+  .graph-pane.fs-open {
+    background: var(--bg) !important;
+    padding: calc(env(safe-area-inset-top) + 48px) clamp(12px,3vw,22px) calc(env(safe-area-inset-bottom) + 16px) !important;
+    overflow-y: auto;
+    gap: clamp(8px,1.5vw,14px) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+  }
+  /* 풀스크린 안 flex 자식들이 압축되지 않도록 */
+  .graph-pane.fs-open > * {
+    flex-shrink: 0;
+  }
+  .graph-pane.fs-open canvas#meter {
+    height: clamp(160px, 28vh, 280px) !important;
+  }
+  /* 풀스크린 캔버스 래퍼 높이 명시 (레이아웃 안정화) */
+  .graph-pane.fs-open .canvas-tap-wrap {
+    height: clamp(160px, 28vh, 280px);
+    flex-shrink: 0;
+  }
+  /* 그래프 풀스크린 시 마이크 버튼 숨김 */
+  .graph-pane.fs-open .mic-wrap {
+    display: none;
+  }
+
+  /* 조언창 풀스크린 */
+  .advice-pane.fs-open {
+    background: var(--bg) !important;
+    display: flex;
+    flex-direction: column;
+  }
+  .advice-pane.fs-open .cards-scroll {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+  }
+
+  /* 풀스크린 시 닫기 버튼 표시 */
+  .graph-pane.fs-open .fs-close-btn,
+  .advice-pane.fs-open .fs-close-btn {
+    display: flex;
+  }
+
+  /* 캔버스 탭 래퍼 */
+  .canvas-tap-wrap {
+    position: relative;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+  }
+
+  /* 조언창 탭 영역 */
+  .advice-header {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .cards-scroll {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  @keyframes fsScaleIn {
+    from { opacity: 0; transform: scale(0.97); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="app-name">LIVE MAX <span>AI</span></div>
+    <div class="header-right">
+      <div class="lamp" id="lamp"></div>
+      <span class="lamp-label" id="lamp-label" data-lamp-state="idle">대기</span>
+      <div class="btn-lang" id="lang-toggle" onclick="toggleLang()">
+        <span id="lang-ko-btn">KO</span>
+        <span id="lang-en-btn">EN</span>
+      </div>
+      <button class="btn-settings" id="settings-btn" onclick="toggleSettings()">⚙</button>
+    </div>
+  </header>
+
+  <!-- MAIN BODY -->
+  <div class="main-body">
+
+    <!-- GRAPH PANE -->
+    <div class="graph-pane" id="graph-pane">
+      <button class="fs-close-btn" onclick="closeFS(event)" aria-label="닫기">✕</button>
+      <div class="canvas-tap-wrap" id="canvas-tap-wrap">
+        <canvas id="meter"></canvas>
+      </div>
+      <div class="freq-labels">
+        <span>20</span><span>50</span><span>100</span><span>200</span>
+        <span>500</span><span>1k</span><span>2k</span><span>5k</span>
+        <span>10k</span><span>20k</span>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls-row">
+        <div class="controls-toggle-header" id="controls-toggle-header" onclick="toggleControlsPanel()">
+          <span id="controls-toggle-label">CONTROLS ▲</span>
+        </div>
+        <div class="controls-collapsible" id="controls-collapsible">
+        <!-- AGC + Source row -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">AUTO</span>
+          <span class="ctrl-val" id="agc-val">0 dB</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="agc-toggle" checked onchange="toggleAGC(this.checked)">
+            <div class="toggle-track"></div>
+            <div class="toggle-knob"></div>
+          </label>
+          <div id="source-toggle" onclick="toggleSource()" style="display:flex;align-items:center;cursor:pointer;border-radius:99px;overflow:hidden;border:1px solid var(--border2);flex-shrink:0;margin-left:4px;">
+            <span id="src-mobile-btn" style="padding:3px 8px;font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;">PHONE</span>
+            <span id="src-line-btn" style="padding:3px 8px;font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;">LINE</span>
+          </div>
+        </div>
+        <div class="ctrl-divider"></div>
+        <!-- GAIN row -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">GAIN</span>
+          <input type="range" id="manual-gain-slider" min="0" max="100" value="50" oninput="setManualGain(this.value)">
+          <span class="ctrl-val" id="manual-gain-val">0 dB</span>
+          <button class="ctrl-rst" onclick="document.getElementById('manual-gain-slider').value=50;setManualGain(50);">RST</button>
+        </div>
+        <!-- COMP row -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">COMP</span>
+          <input type="range" id="comp-slider" min="0" max="100" value="40" oninput="setComp(this.value/100)">
+          <button class="ctrl-rst" onclick="document.getElementById('comp-slider').value=0;setComp(0);">RST</button>
+        </div>
+        <!-- LSF row -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">LSF</span>
+          <input type="range" id="lsf-slider" min="0" max="100" value="0" oninput="setLowshelf(this.value)">
+          <button class="ctrl-rst" onclick="document.getElementById('lsf-slider').value=0;setLowshelf(0);">RST</button>
+        </div>
+        <div class="ctrl-divider"></div>
+        <!-- DRY / WET toggle -->
+        <div class="ctrl-row">
+          <span class="ctrl-label" style="color:var(--muted2)">REC</span>
+          <span class="ctrl-rt-label" data-i18n="rec_mode_label">녹음 방식</span>
+          <div id="dry-wet-toggle" onclick="toggleDryWet()" style="display:flex;align-items:center;cursor:pointer;border-radius:99px;overflow:hidden;border:1px solid var(--border2);flex-shrink:0;">
+            <span id="dry-btn" style="padding:3px 8px;font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;">DRY</span>
+            <span id="wet-btn" style="padding:3px 8px;font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;">WET</span>
+          </div>
+        </div>
+        </div><!-- /controls-collapsible -->
+      </div>
+
+      <!-- Mic button -->
+      <div class="mic-wrap">
+        <div style="display:flex;align-items:center;gap:clamp(10px,2vw,18px);">
+          <input id="user-hint-input" type="text" maxlength="20" placeholder="무엇을 조언할까요?" data-i18n="hint_placeholder"
+            style="width:clamp(90px,18vw,160px);background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:clamp(4px,0.8vw,7px) clamp(8px,1.2vw,12px);font-family:var(--font-mono);font-size:var(--xs);color:var(--fg1);outline:none;flex-shrink:0;"
+          />
+          <div id="analysis-mode-toggle" style="display:flex;flex-direction:column;align-items:center;border-radius:99px;overflow:hidden;border:1px solid var(--border2);flex-shrink:0;">
+            <span id="amode-mix"    onclick="setAnalysisMode('mix')"    style="padding:clamp(5px,1vw,8px) clamp(10px,2vw,16px);font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;width:100%;text-align:center;cursor:pointer;">MIX</span>
+            <span id="amode-solo"   onclick="setAnalysisMode('solo')"   style="padding:clamp(5px,1vw,8px) clamp(10px,2vw,16px);font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;width:100%;text-align:center;cursor:pointer;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);">SOLO</span>
+            <span id="amode-speech" onclick="setAnalysisMode('speech')" style="padding:clamp(5px,1vw,8px) clamp(10px,2vw,16px);font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;width:100%;text-align:center;cursor:pointer;">SPK</span>
+          </div>
+          <div class="mic-btn" id="mic-btn" onclick="handleMic()">
+            <span class="mic-icon">🎙</span>
+            <span class="mic-label" id="mic-label">MAX AI</span>
+          </div>
+        </div>
+        <div class="countdown" id="countdown"></div>
+      </div>
+    </div>
+
+    <!-- ADVICE PANE -->
+    <div class="advice-pane" id="advice-pane">
+      <button class="fs-close-btn" onclick="closeFS(event)" aria-label="닫기">✕</button>
+      <div class="advice-header" id="advice-header">
+        <span class="advice-title" data-i18n="advice_title">조언</span>
+      </div>
+      <div class="cards-scroll" id="cards-scroll">
+        <div class="empty-state" id="empty-state">
+          <span class="empty-icon">🎚️</span>
+          <span class="empty-text" data-i18n="empty_text">MaxAI 버튼을 눌러<br>5초 믹스를 분석해보세요</span>
+        </div>
+        <div id="analysis-list"></div>
+      </div>
+      <div class="advice-notice" id="advice-notice">
+        <span class="notice-text" data-i18n="advice_notice">⚠️모든 조언은 라이브 PA 환경을 기준으로 제안됩니다</span>
+        <button class="notice-toggle-btn" id="notice-toggle-btn" onclick="toggleAdviceNotice()" aria-label="알림 숨기기">✕</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- HOWLING BAR -->
+  <div class="howl-bar" id="howl-bar">
+    <div class="howl-bar-inner">
+      <span class="howl-bar-icon">⚠</span>
+      <div class="howl-bar-text">
+        <span class="howl-bar-title" data-i18n="howl_title">하울링 감지</span>
+        <span class="howl-bar-freq" id="howl-bar-freq">—</span>
+      </div>
+      <span class="howl-bar-time" id="howl-bar-time"></span>
+      <button class="howl-bar-close" onclick="dismissHowlBar()">✕</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- SETTINGS OVERLAY -->
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettingsOnBg(event)">
+  <div class="settings-panel">
+    <div class="settings-header">
+      <span class="settings-title" data-i18n="settings_title">설정</span>
+      <button class="settings-close" onclick="toggleSettings()">✕</button>
+    </div>
+    <div class="settings-inner">
+
+      <!-- ▶ 입력 장치 -->
+      <div class="setting-section" id="setting-section-device">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_device">입력 장치</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <select class="api-input" id="device-select" onchange="changeDevice(this.value)" style="cursor:pointer">
+            <option value="default" data-i18n="device_default">기본 마이크</option>
+          </select>
+          <div class="ch-hint" data-i18n="device_hint">LIVE 탭을 열면 장치 목록이 자동으로 불러와져요</div>
+        </div>
+      </div>
+
+      <!-- ▶ AI 모델 -->
+      <div class="setting-section">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_model">AI 모델</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <div class="radio-group">
+            <div class="radio-option" id="preset-flash-30-minimal" onclick="selectModelPreset('flash-30-minimal')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.0 Minimal</div><div class="ch-hint" data-i18n="model_flash30min_hint">빠른 응답. 균형잡힌 톤</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-30-high" onclick="selectModelPreset('flash-30-high')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.0 High</div><div class="ch-hint" data-i18n="model_flash30high_hint">따뜻한 톤</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-31-minimal" onclick="selectModelPreset('flash-31-minimal')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.1 Minimal</div><div class="ch-hint" data-i18n="model_flash31min_hint">메인파트 마스킹 조언</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-31-low" onclick="selectModelPreset('flash-31-low')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.1 Low</div><div class="ch-hint" data-i18n="model_flash31low_hint">파트별 밸런스</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-31-mid" onclick="selectModelPreset('flash-31-mid')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.1 Medium</div><div class="ch-hint" data-i18n="model_flash31mid_hint">깨끗한 톤, 분리도</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-31-high" onclick="selectModelPreset('flash-31-high')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.1 High</div><div class="ch-hint" data-i18n="model_flash31high_hint">균형잡힌 톤</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ▶ API 연결 -->
+      <div class="setting-section" id="setting-section-api">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_api">API 연결</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <div class="radio-group">
+            <div class="radio-option" id="api-proxy" onclick="selectApiMode(true)">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text" data-i18n="api_proxy">기본 프록시 사용</div><div class="ch-hint" data-i18n="api_proxy_hint">proxy.dumpit.dev 경유 (기본값)</div></div>
+            </div>
+            <div class="radio-option" id="api-direct" onclick="selectApiMode(false)">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text" data-i18n="api_direct">API 키 사용</div><div class="ch-hint" data-i18n="api_direct_hint">Google AI Studio에서 발급한 키</div></div>
+            </div>
+          </div>
+          <div id="api-key-row" style="display:none;margin-top:8px">
+            <input class="api-input" id="api-key-input" type="password"
+              placeholder="AIza..." autocomplete="off" spellcheck="false"
+              oninput="state.apiKey=this.value.trim();saveToStorage()"
+              data-i18n="api_key_placeholder">
+          </div>
+        </div>
+      </div>
+
+      <!-- ▶ 공간 환경 -->
+      <div class="setting-section" id="setting-section-space">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_space">공간 환경</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <!-- 공간 유형 -->
+          <div class="seg-row">
+            <div class="seg-label" data-i18n="space_type_label">공간 유형</div>
+            <div class="seg-group" id="seg-space-mode">
+              <button class="seg-btn" data-val="live" data-i18n="space_live_pa" onclick="setSpaceMode('live',this)">라이브 PA</button>
+              <button class="seg-btn" data-val="studio" data-i18n="space_studio" onclick="setSpaceMode('studio',this)">스튜디오</button>
+            </div>
+          </div>
+          <!-- 라이브 PA 전용 슬라이더 -->
+          <div id="space-live-fields">
+          <div class="seg-row">
+            <div class="seg-label" data-i18n="space_size_label">공간 크기</div>
+            <div class="seg-group" id="seg-venue">
+              <button class="seg-btn" data-val="소형실내" data-i18n="space_size_0" onclick="setSpaceEnv('venue','소형실내',this)">소형실내</button>
+              <button class="seg-btn" data-val="중형실내" data-i18n="space_size_1" onclick="setSpaceEnv('venue','중형실내',this)">중형실내</button>
+              <button class="seg-btn" data-val="대형/야외" data-i18n="space_size_2" onclick="setSpaceEnv('venue','대형/야외',this)">대형/야외</button>
+            </div>
+          </div>
+          <div class="seg-row">
+            <div class="seg-label" data-i18n="space_reverb_label">반사음</div>
+            <div class="seg-group" id="seg-reverb">
+              <button class="seg-btn" data-val="적음" data-i18n="space_reverb_0" onclick="setSpaceEnv('reverb','적음',this)">적음</button>
+              <button class="seg-btn" data-val="보통" data-i18n="space_reverb_1" onclick="setSpaceEnv('reverb','보통',this)">보통</button>
+              <button class="seg-btn" data-val="많음" data-i18n="space_reverb_2" onclick="setSpaceEnv('reverb','많음',this)">많음</button>
+            </div>
+          </div>
+          <div class="seg-row">
+            <div class="seg-label" data-i18n="space_sub_label">서브우퍼</div>
+            <div class="seg-group" id="seg-sub">
+              <button class="seg-btn" data-val="없음" data-i18n="space_sub_0" onclick="setSpaceEnv('sub','없음',this)">없음</button>
+              <button class="seg-btn" data-val="소형" data-i18n="space_sub_1" onclick="setSpaceEnv('sub','소형',this)">소형</button>
+              <button class="seg-btn" data-val="대형" data-i18n="space_sub_2" onclick="setSpaceEnv('sub','대형',this)">대형</button>
+            </div>
+          </div>
+          <div class="seg-row">
+            <div class="seg-label" data-i18n="space_delay_label">딜레이 스피커</div>
+            <div class="seg-group" id="seg-delay">
+              <button class="seg-btn" data-val="없음" data-i18n="space_delay_0" onclick="setSpaceEnv('delay','없음',this)">없음</button>
+              <button class="seg-btn" data-val="일부" data-i18n="space_delay_1" onclick="setSpaceEnv('delay','일부',this)">일부</button>
+              <button class="seg-btn" data-val="풀커버" data-i18n="space_delay_2" onclick="setSpaceEnv('delay','풀커버',this)">풀커버</button>
+            </div>
+          </div>
+          <div class="seg-row">
+            <div class="seg-label" data-i18n="space_fb_label">피드백 여유</div>
+            <div class="seg-group" id="seg-fb">
+              <button class="seg-btn" data-val="타이트" data-i18n="space_fb_0" onclick="setSpaceEnv('fb','타이트',this)">타이트</button>
+              <button class="seg-btn" data-val="보통" data-i18n="space_fb_1" onclick="setSpaceEnv('fb','보통',this)">보통</button>
+              <button class="seg-btn" data-val="여유있게" data-i18n="space_fb_2" onclick="setSpaceEnv('fb','여유있게',this)">여유있게</button>
+            </div>
+          </div>
+          <textarea class="memo-input" id="space-memo" placeholder="공간 관련 고정 메모..." data-i18n="space_memo_placeholder" oninput="saveSpaceMemoLive()"></textarea>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="space-preset-select" onchange="loadSpacePreset(this.value)"
+              style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:calc(var(--r)*0.8);padding:clamp(8px,1.4vw,12px) clamp(10px,1.6vw,14px);color:var(--text);font-family:var(--font-mono);font-size:var(--sm);outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 12px center;">
+              <option value="">— 프리셋 선택 —</option>
+            </select>
+            <button class="btn btn-secondary" style="color:var(--danger);border-color:rgba(255,68,68,0.3);flex-shrink:0" data-i18n="space_preset_delete" onclick="deleteSpacePreset()">삭제</button>
+          </div>
+          <button class="btn btn-secondary" style="width:100%" data-i18n="space_preset_save" onclick="saveSpacePreset()">현재 공간 환경을 프리셋으로 저장</button>
+          </div><!-- /space-live-fields -->
+        </div>
+      </div>
+
+      <!-- ▶ 믹스 취향 -->
+      <div class="setting-section" id="setting-section-mix">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_mix">믹스 취향</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <div class="seg-row">
+            <div class="seg-label" data-i18n="mix_type_label">행사 유형</div>
+            <div class="seg-group" id="seg-mix-type">
+              <button class="seg-btn" data-val="music" data-i18n="mix_type_music" onclick="setMixType('music',this)">음악 중심</button>
+              <button class="seg-btn" data-val="speech" data-i18n="mix_type_speech" onclick="setMixType('speech',this)">스피치 중심</button>
+            </div>
+          </div>
+          <div class="seg-row" id="vocal-config-row">
+            <div class="seg-label" data-i18n="vocal_config_label">보컬 구성</div>
+            <div class="seg-group" id="seg-vocal-config">
+              <button class="seg-btn" data-val="none" data-i18n="vocal_none" onclick="setVocalConfig('none',this)">없음</button>
+              <button class="seg-btn" data-val="yes" data-i18n="vocal_yes" onclick="setVocalConfig('yes',this)">있음</button>
+              <button class="seg-btn" data-val="leader" data-i18n="vocal_leader" onclick="setVocalConfig('leader',this)">보컬+리더</button>
+            </div>
+          </div>
+          <div class="seg-row" id="density-row">
+            <div class="seg-label" data-i18n="density_label">사운드 밀도</div>
+            <div class="seg-group" id="seg-density">
+              <button class="seg-btn" data-val="두껍게" data-i18n="density_0" onclick="setMixPref('density','두껍게',this)">두껍게</button>
+              <button class="seg-btn" data-val="중립" data-i18n="density_1" onclick="setMixPref('density','중립',this)">중립</button>
+              <button class="seg-btn" data-val="깔끔하게" data-i18n="density_2" onclick="setMixPref('density','깔끔하게',this)">깔끔하게</button>
+            </div>
+          </div>
+          <div id="mix-music-fields">
+            <div id="mix-vocal-fields">
+              <div class="seg-row">
+                <div class="seg-label" data-i18n="vocal_tone_label">보컬 톤</div>
+                <div class="seg-group" id="seg-vocal-tone">
+                  <button class="seg-btn" data-val="부드럽게" data-i18n="vocal_tone_0" onclick="setMixPref('vocalTone','부드럽게',this)">부드럽게</button>
+                  <button class="seg-btn" data-val="중립" data-i18n="vocal_tone_1" onclick="setMixPref('vocalTone','중립',this)">중립</button>
+                  <button class="seg-btn" data-val="명료하게" data-i18n="vocal_tone_2" onclick="setMixPref('vocalTone','명료하게',this)">명료하게</button>
+                </div>
+              </div>
+              <div class="seg-row">
+                <div class="seg-label" data-i18n="vocal_weight_label">보컬 비중</div>
+                <div class="seg-group" id="seg-vocal-weight">
+                  <button class="seg-btn" data-val="밴드중심" data-i18n="vocal_weight_0" onclick="setMixPref('vocalWeight','밴드중심',this)">밴드중심</button>
+                  <button class="seg-btn" data-val="균형" data-i18n="vocal_weight_1" onclick="setMixPref('vocalWeight','균형',this)">균형</button>
+                  <button class="seg-btn" data-val="보컬중심" data-i18n="vocal_weight_2" onclick="setMixPref('vocalWeight','보컬중심',this)">보컬중심</button>
+                </div>
+              </div>
+            </div><!-- /mix-vocal-fields -->
+            <div class="seg-row">
+              <div class="seg-label" data-i18n="low_feel_label">저역 느낌</div>
+              <div class="seg-group" id="seg-low-feel">
+                <button class="seg-btn" data-val="타이트" data-i18n="low_feel_0" onclick="setMixPref('lowFeel','타이트',this)">타이트</button>
+                <button class="seg-btn" data-val="중립" data-i18n="low_feel_1" onclick="setMixPref('lowFeel','중립',this)">중립</button>
+                <button class="seg-btn" data-val="풍성하게" data-i18n="low_feel_2" onclick="setMixPref('lowFeel','풍성하게',this)">풍성하게</button>
+              </div>
+            </div>
+            <div class="seg-row">
+              <div class="seg-label" data-i18n="drum_punch_label">드럼 펀치</div>
+              <div class="seg-group" id="seg-drum-punch">
+                <button class="seg-btn" data-val="자연스럽게" data-i18n="drum_punch_0" onclick="setMixPref('drumPunch','자연스럽게',this)">자연스럽게</button>
+                <button class="seg-btn" data-val="중립" data-i18n="drum_punch_1" onclick="setMixPref('drumPunch','중립',this)">중립</button>
+                <button class="seg-btn" data-val="강하게" data-i18n="drum_punch_2" onclick="setMixPref('drumPunch','강하게',this)">강하게</button>
+              </div>
+            </div>
+          </div>
+          <div id="mix-speech-fields" style="display:none;flex-direction:column;gap:clamp(8px,1.5vw,12px)">
+            <div class="seg-row">
+              <div class="seg-label" data-i18n="clarity_label">말 명료도</div>
+              <div class="seg-group" id="seg-clarity">
+                <button class="seg-btn" data-val="자연스럽게" data-i18n="clarity_0" onclick="setMixPref('clarity','자연스럽게',this)">자연스럽게</button>
+                <button class="seg-btn" data-val="중립" data-i18n="clarity_1" onclick="setMixPref('clarity','중립',this)">중립</button>
+                <button class="seg-btn" data-val="최대명료도" data-i18n="clarity_2" onclick="setMixPref('clarity','최대명료도',this)">최대명료도</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ▶ 즉석 메모 -->
+      <div class="setting-section">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_memo">즉석 메모</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <textarea class="memo-input" id="instant-memo" placeholder="세션 중 메모 (저장 안 됨)..." data-i18n="memo_placeholder" style="min-height:clamp(80px,15vw,120px)"></textarea>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn btn-secondary" data-i18n="memo_reset" onclick="resetMemo()">초기화</button>
+            <button class="btn btn-secondary" data-i18n="memo_save_preset" onclick="saveMemoPreset()">프리셋 저장</button>
+          </div>
+          <div id="memo-preset-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- ▶ 튜토리얼 -->
+      <div class="setting-section">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_help">도움말</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <button class="btn btn-secondary" style="width:100%" data-i18n="tutorial_restart" onclick="toggleSettings();tutorialStartForce()">튜토리얼 다시 보기</button>
+        </div>
+      </div>
+
+      <!-- ▶ 설정 백업 -->
+      <div class="setting-section">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_backup">설정 백업</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <div class="btn-row">
+            <button class="btn btn-secondary" data-i18n="backup_export" onclick="exportSettings()">📤 내보내기</button>
+            <button class="btn btn-secondary" data-i18n="backup_import" onclick="document.getElementById('import-file').click()">📥 불러오기</button>
+          </div>
+          <input type="file" id="import-file" accept=".json" style="display:none" onchange="importSettings(event)">
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-title" data-i18n="modal_preset_title">프리셋 이름</div>
+    <input class="modal-input" id="modal-input" placeholder="예: 교회 Sunday" data-i18n="modal_preset_placeholder" maxlength="30">
+    <div class="btn-row">
+      <button class="btn btn-secondary" data-i18n="modal_cancel" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" data-i18n="modal_save" onclick="confirmPreset()">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- TUTORIAL OVERLAY -->
+<div id="tutorial-overlay">
+  <div id="tutorial-highlight-box"></div>
+  <div id="tutorial-bubble">
+    <div id="tutorial-text"></div>
+    <div id="tutorial-footer">
+      <span id="tutorial-step-indicator"></span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="tutorial-skip-btn" onclick="tutorialSkip()">건너뛰기</button>
+        <button id="tutorial-next-btn" onclick="tutorialNext()">다음 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── I18N ──
+const I18N = {
+  ko: {
+    lamp_idle:'대기', lamp_active:'청음중', lamp_rec:'녹음중', lamp_analyze:'분석중', lamp_error:'오류',
+    rec_mode_label:'녹음 방식',
+    hint_placeholder:'무엇을 조언할까요?',
+    empty_text:'MaxAI 버튼을 눌러<br>5초 믹스를 분석해보세요',
+    advice_title:'조언',
+    advice_notice:'⚠️모든 조언은 라이브 PA 환경을 기준으로 제안됩니다',
+    howl_title:'하울링 감지', howl_last:'마지막 하울링', howl_near:'부근', howl_at:'감지',
+    settings_title:'설정',
+    model_flash30min_hint:'빠른 응답. 균형잡힌 톤', model_flash30high_hint:'따뜻한 톤',
+    model_flash31min_hint:'메인파트 마스킹 조언', model_flash31low_hint:'파트별 밸런스',
+    model_flash31mid_hint:'깨끗한 톤, 분리도', model_flash31high_hint:'균형잡힌 톤',
+    sec_device:'입력 장치', sec_model:'AI 모델', sec_api:'API 연결', sec_space:'공간 환경',
+    sec_mix:'믹스 취향', sec_memo:'즉석 메모', sec_help:'도움말', sec_backup:'설정 백업',
+    api_proxy:'기본 프록시 사용', api_proxy_hint:'proxy.dumpit.dev 경유 (기본값)',
+    api_direct:'직접 API 키 사용', api_direct_hint:'Google AI Studio에서 발급한 키',
+    api_key_placeholder:'Google AI API 키 입력 (AIza...)',
+    device_default:'기본 마이크', device_hint:'LIVE 탭을 열면 장치 목록이 자동으로 불러와져요', device_mic_n:'마이크 ',
+    space_type_label:'공간 유형', space_live_pa:'라이브 PA', space_studio:'스튜디오',
+    space_size_label:'공간 크기', space_size_0:'소형실내', space_size_1:'중형실내', space_size_2:'대형/야외',
+    space_reverb_label:'반사음', space_reverb_0:'적음', space_reverb_1:'보통', space_reverb_2:'많음',
+    space_sub_label:'서브우퍼', space_sub_0:'없음', space_sub_1:'소형', space_sub_2:'대형',
+    space_delay_label:'딜레이 스피커', space_delay_0:'없음', space_delay_1:'일부', space_delay_2:'풀커버',
+    space_fb_label:'피드백 여유', space_fb_0:'타이트', space_fb_1:'보통', space_fb_2:'여유있게',
+    space_memo_placeholder:'공간 관련 고정 메모...', space_preset_select:'— 프리셋 선택 —',
+    space_preset_delete:'삭제', space_preset_save:'현재 공간 환경을 프리셋으로 저장',
+    mix_type_label:'행사 유형', mix_type_music:'음악 중심', mix_type_speech:'스피치 중심', mix_type_mixed:'혼합',
+    mix_mixed_hint:'음악·스피치 취향을 모두 분석에 반영해요.',
+    vocal_config_label:'보컬 구성', vocal_none:'없음', vocal_yes:'있음', vocal_leader:'보컬+리더',
+    density_label:'사운드 밀도', density_0:'두껍게', density_1:'중립', density_2:'깔끔하게',
+    vocal_tone_label:'보컬 톤', vocal_tone_0:'부드럽게', vocal_tone_1:'중립', vocal_tone_2:'명료하게',
+    vocal_weight_label:'보컬 비중', vocal_weight_0:'밴드중심', vocal_weight_1:'균형', vocal_weight_2:'보컬중심',
+    low_feel_label:'저역 느낌', low_feel_0:'타이트', low_feel_1:'중립', low_feel_2:'풍성하게',
+    drum_punch_label:'드럼 펀치', drum_punch_0:'자연스럽게', drum_punch_1:'중립', drum_punch_2:'강하게',
+    clarity_label:'말 명료도', clarity_0:'자연스럽게', clarity_1:'중립', clarity_2:'최대명료도',
+    memo_placeholder:'세션 중 메모 (저장 안 됨)...', memo_reset:'초기화', memo_save_preset:'프리셋 저장',
+    memo_preset_name:'프리셋 이름',
+    tutorial_restart:'튜토리얼 다시 보기',
+    backup_export:'📤 내보내기', backup_import:'📥 불러오기',
+    modal_preset_title:'프리셋 이름', modal_preset_placeholder:'예: 교회 Sunday', modal_cancel:'취소', modal_save:'저장',
+    alert_saved:'저장됐어요 ✓', alert_import_ok:'설정을 불러왔어요 ✓',
+    alert_import_err:'파일을 읽을 수 없어요. JSON 형식인지 확인해주세요.',
+    alert_device_err:'이 마이크를 사용하려면 권한이 필요해요',
+    preset_delete_confirm:'"{name}" 프리셋을 삭제할까요?',
+    status_rec:'5초간 녹음 중...', status_rec_n:'{n}초간 녹음 중...', status_sending:'AI에 전송 중...', status_analyzing:'분석 중입니다...',
+    err_mic_perm:'마이크 권한을 허용해주세요.\niOS: 설정 > Safari > 마이크\nAndroid: 설정 > Chrome > 사이트 설정 > 마이크',
+    err_mic_notfound:'마이크를 찾을 수 없어요.\n장치 연결을 확인해주세요.',
+    err_mic_general:'마이크 접근 권한이 필요합니다.\n브라우저 설정에서 마이크를 허용해주세요.',
+    err_empty:'응답이 비어있어요', err_general:'오류가 발생했어요',
+    tut_next:'다음 →', tut_start:'시작하기 🎉', tut_skip:'건너뛰기',
+    tut_0:'안녕하세요! Live Max AI를 소개할게요 👋<br>몇 가지만 확인하면 바로 시작할 수 있어요!',
+    tut_1:'녹음 버튼을 누르면 5초 녹음 후 AI 조언이 바로 나와요 🎙️',
+    tut_2:'MIX·SOLO·SPEECH 중 분석 모드를 선택하세요.<br>SPEECH 선택 시 행사 유형이 스피치 중심으로 바뀌어요 🎙️',
+    tut_3:'오디오 인터페이스로 믹스 소스를 직접 연결하면<br>더 정확한 분석이 가능해요 🎛️',
+    tut_api:'AI 분석은 기본 프록시를 통해 무료로 사용할 수 있어요.<br>특정 네트워크(학교·기업망)에서 막힌다면 <b>Google AI Studio</b>에서<br>무료 API 키를 발급받아 직접 입력해보세요 🔑',
+    tut_4:'현장 환경을 저장해두면 매번 AI에 전달돼요.<br>고정 메모에 특이사항도 적어두세요 📝',
+    tut_5:'내 믹스 스타일을 설정하면 조언이 달라져요 🎚️',
+    tut_6:'입력소스가 너무 작을 땐 WET 모드를 사용해보세요 🔊',
+    tut_7_android:'앱 형태로 설치하면 더 편리하게 사용할 수 있어요 📲<br>Chrome 메뉴에서 <b>\'앱 설치\'</b>를 눌러주세요!',
+    tut_7_ios:'앱 형태로 설치하면 더 편리하게 사용할 수 있어요 📲<br>Safari 공유 버튼에서 <b>\'홈 화면에 추가\'</b>를 눌러주세요!',
+    tut_7_desktop:'앱 형태로 설치하면 더 편리하게 사용할 수 있어요 💻<br>Chrome 주소창 오른쪽 <b>설치 아이콘</b>을 눌러주세요!',
+    tut_8:'준비 완료예요! 즐거운 믹싱 되세요 🎉',
+    ai_prompt:`첨부된 5초 오디오를 듣고 믹스 엔지니어에게 조언해주세요.
+
+규칙:
+- 조용하거나 악기,보컬 모두 감지되지 않으면: "조용한 환경이에요 🎧 믹스를 틀고 눌러주세요!"
+- 첫 줄: 긍정형 한 줄 요약 (예: "보컬을 살려볼까요?")
+- 둘째 줄부터: 구체적 액션 1~3개 (예: "💡 보컬 +2dB", "💡 킥 80Hz -1.5dB")
+- 전체 3~4줄 이내, 간결하게
+- 문제 없으면: "지금 믹스 완벽해요 🎚️" 한 줄만`,
+  },
+  en: {
+    lamp_idle:'IDLE', lamp_active:'LISTENING', lamp_rec:'RECORDING', lamp_analyze:'ANALYZING', lamp_error:'ERROR',
+    rec_mode_label:'Rec Mode',
+    hint_placeholder:'What to analyze?',
+    empty_text:'Tap MAX AI to analyze<br>a 5-second mix',
+    advice_title:'ADVICE',
+    advice_notice:'⚠️All advice is tailored for live PA environments',
+    howl_title:'Feedback Detected', howl_last:'Last Feedback', howl_near:'around', howl_at:'detected',
+    settings_title:'SETTINGS',
+    model_flash30min_hint:'Fast response. Balanced tone advice', model_flash30high_hint:'Warm tone advice',
+    model_flash31min_hint:'Main part masking advice', model_flash31low_hint:'Per-part balance advice',
+    model_flash31mid_hint:'Clean tone & separation advice', model_flash31high_hint:'Balanced tone advice',
+    sec_device:'Input Device', sec_model:'AI Model', sec_api:'API Connection', sec_space:'Venue',
+    sec_mix:'Mix Style', sec_memo:'Session Notes', sec_help:'Help', sec_backup:'Backup',
+    api_proxy:'Use Default Proxy', api_proxy_hint:'Via proxy.dumpit.dev (default)',
+    api_direct:'Use Direct API Key', api_direct_hint:'Key from Google AI Studio',
+    api_key_placeholder:'Enter Google AI API key (AIza...)',
+    device_default:'Default Mic', device_hint:'Open the LIVE tab to load the device list', device_mic_n:'Mic ',
+    space_type_label:'Venue Type', space_live_pa:'Live PA', space_studio:'Studio',
+    space_size_label:'Venue Size', space_size_0:'Small Indoor', space_size_1:'Medium Indoor', space_size_2:'Large/Outdoor',
+    space_reverb_label:'Reflections', space_reverb_0:'Low', space_reverb_1:'Medium', space_reverb_2:'High',
+    space_sub_label:'Subwoofer', space_sub_0:'None', space_sub_1:'Small', space_sub_2:'Large',
+    space_delay_label:'Delay Speakers', space_delay_0:'None', space_delay_1:'Some', space_delay_2:'Full Cover',
+    space_fb_label:'Feedback Margin', space_fb_0:'Tight', space_fb_1:'Normal', space_fb_2:'Relaxed',
+    space_memo_placeholder:'Fixed notes about this venue...', space_preset_select:'— Select Preset —',
+    space_preset_delete:'Delete', space_preset_save:'Save current venue as preset',
+    mix_type_label:'Event Type', mix_type_music:'Music', mix_type_speech:'Speech', mix_type_mixed:'Mixed',
+    mix_mixed_hint:'Both music & speech preferences are applied.',
+    vocal_config_label:'Vocal Setup', vocal_none:'None', vocal_yes:'Yes', vocal_leader:'Lead+BVs',
+    density_label:'Sound Density', density_0:'Thick', density_1:'Neutral', density_2:'Clean',
+    vocal_tone_label:'Vocal Tone', vocal_tone_0:'Warm', vocal_tone_1:'Neutral', vocal_tone_2:'Clear',
+    vocal_weight_label:'Vocal Weight', vocal_weight_0:'Band-forward', vocal_weight_1:'Balanced', vocal_weight_2:'Vocal-forward',
+    low_feel_label:'Low End Feel', low_feel_0:'Tight', low_feel_1:'Neutral', low_feel_2:'Full',
+    drum_punch_label:'Drum Punch', drum_punch_0:'Natural', drum_punch_1:'Neutral', drum_punch_2:'Punchy',
+    clarity_label:'Speech Clarity', clarity_0:'Natural', clarity_1:'Neutral', clarity_2:'Max Clarity',
+    memo_placeholder:'Session notes (not saved)...', memo_reset:'Reset', memo_save_preset:'Save Preset',
+    memo_preset_name:'Preset name',
+    tutorial_restart:'Restart Tutorial',
+    backup_export:'📤 Export', backup_import:'📥 Import',
+    modal_preset_title:'Preset Name', modal_preset_placeholder:'e.g. Church Sunday', modal_cancel:'Cancel', modal_save:'Save',
+    alert_saved:'Saved ✓', alert_import_ok:'Settings loaded ✓',
+    alert_import_err:'Could not read file. Please verify it is valid JSON.',
+    alert_device_err:'Permission required to use this microphone',
+    preset_delete_confirm:'Delete "{name}" preset?',
+    status_rec:'Recording for 5s...', status_rec_n:'Recording {n}s...', status_sending:'Sending to AI...', status_analyzing:'Analyzing...',
+    err_mic_perm:'Please allow microphone access.\niOS: Settings > Safari > Microphone\nAndroid: Settings > Chrome > Site Settings > Microphone',
+    err_mic_notfound:'Microphone not found.\nPlease check your device connection.',
+    err_mic_general:'Microphone permission is required.\nPlease allow microphone in browser settings.',
+    err_empty:'Response was empty', err_general:'An error occurred',
+    tut_next:'Next →', tut_start:'Let\'s go! 🎉', tut_skip:'Skip',
+    tut_0:'Welcome to Live Max AI! 👋<br>Just a couple of things before you start!',
+    tut_1:'Press the record button to capture 5 seconds of audio and get AI advice 🎙️',
+    tut_2:'Choose MIX, SOLO, or SPEECH analysis mode.<br>SPEECH mode switches the event type automatically 🎙️',
+    tut_3:'Connect your mix via audio interface<br>for more accurate analysis 🎛️',
+    tut_api:'AI analysis works for free via the default proxy.<br>If it\'s blocked on your network (school/corporate),<br>get a free API key from <b>Google AI Studio</b> and enter it here 🔑',
+    tut_4:'Save your venue environment to pass it to AI every time.<br>Add notes about the space 📝',
+    tut_5:'Set your mix style to personalise the AI advice 🎚️',
+    tut_6:'Use WET mode if the input signal is too quiet 🔊',
+    tut_7_android:'Install as an app for a better experience 📲<br>Tap <b>\'Install App\'</b> in the Chrome menu!',
+    tut_7_ios:'Install as an app for a better experience 📲<br>Tap <b>\'Add to Home Screen\'</b> in Safari!',
+    tut_7_desktop:'Install as an app for a better experience 💻<br>Click the <b>install icon</b> in the Chrome address bar!',
+    tut_8:'You\'re all set! Enjoy your mix! 🎉',
+    ai_prompt:`Listen to the attached 5-second audio and advise the mix engineer.
+
+Rules:
+- If quiet or no instruments/vocals detected: "Quiet environment 🎧 Play the mix and press again!"
+- First line: one positive summary (e.g. "Let's bring out the vocals!")
+- Following lines: 1–3 specific actions (e.g. "💡 Vocals +2dB", "💡 Kick 80Hz -1.5dB")
+- Keep to 3–4 lines total, concise
+- If no issues: "Mix sounds great right now 🎚️" (one line only)`,
+  },
+};
+function t(key) { return I18N[state.lang]?.[key] ?? I18N.ko[key] ?? key; }
+
+function toggleLang() {
+  state.lang = state.lang === 'ko' ? 'en' : 'ko';
+  localStorage.setItem('livemaxai_lang', state.lang);
+  applyLang();
+}
+
+function applyLang() {
+  const L = I18N[state.lang];
+  document.documentElement.lang = state.lang;
+
+  // Update KO/EN toggle visual
+  const koBtn = document.getElementById('lang-ko-btn');
+  const enBtn = document.getElementById('lang-en-btn');
+  if (koBtn && enBtn) {
+    const isKo = state.lang === 'ko';
+    koBtn.style.background = isKo ? 'var(--accent)' : 'transparent';
+    koBtn.style.color      = isKo ? '#000' : 'var(--muted2)';
+    enBtn.style.background = !isKo ? 'var(--accent)' : 'transparent';
+    enBtn.style.color      = !isKo ? '#000' : 'var(--muted2)';
+  }
+
+  // data-i18n elements
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    if (L[key] === undefined) return;
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      el.placeholder = L[key];
+    } else if (el.tagName === 'OPTION') {
+      el.textContent = L[key];
+    } else {
+      el.innerHTML = L[key];
+    }
+  });
+
+  // Preset select placeholder option (rendered dynamically)
+  const spSel = document.getElementById('space-preset-select');
+  if (spSel && spSel.options[0]) spSel.options[0].textContent = L.space_preset_select;
+
+  // Current lamp label
+  const lampEl = document.getElementById('lamp-label');
+  if (lampEl) {
+    const cur = lampEl.dataset.lampState || 'idle';
+    lampEl.textContent = L['lamp_' + cur] || lampEl.textContent;
+  }
+}
+
+// ── STATE ──
+const state = {
+  soloMode: false,
+  analysisMode: 'mix', // 'mix' | 'solo' | 'speech'
+  wetMode: false,
+  memoPresets: [],
+  pinnedMemoIdx: -1,
+  source: 'phone',
+
+  spaceEnv: { mode:'live', venue:'', reverb:'', sub:'', delay:'', fb:'', memo:'' },
+  spacePresets: [],
+  mixPref: { type:'music', vocal:'yes', density:'중립', vocalTone:'중립', vocalWeight:'균형', lowFeel:'중립', drumPunch:'중립', clarity:'중립' },
+  micStream: null,
+  audioCtx: null,
+  analyser: null,
+  compressor: null,
+  lowshelf: null,
+  isRecording: false,
+  isAnalyzing: false,
+  isDetecting: false,
+  countdownTimer: null,
+  analysisCount: 0,
+  mediaRecorder: null,
+  audioChunks: [],
+  howlingFrames: {},
+  howlBarDismissed: false,
+  agcOn: true,
+  agcGain: 1.0,
+  manualGain: 1.0,
+  deviceId: 'default',
+  devices: [],
+  wakeLock: null,
+  modelPreset: 'flash-31-minimal',
+  useProxy: true,
+  apiKey: '',
+  issueHistory: [],
+  lang: localStorage.getItem('livemaxai_lang') || 'ko',
+};
+
+const PHONE_CORRECTION = [8,8,7,6,5,4,3,2,1,0,0,-1,-1,-1,-2,-2,-2,-2,-3,-3,-3,-3,-4,-4,-4,-4,-4,-5,-5,-5,-5,-5];
+const BANDS = [20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,1000,1250,1600,2000,2500,3150,4000,5000,6300,8000,10000,12500,16000,20000,22000];
+const HOWL_SUSTAIN_FRAMES = 60;
+
+const MODEL_CONFIG = {
+  'flash-30-minimal': { model: 'gemini-3-flash-preview',        thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
+  'flash-30-high':    { model: 'gemini-3-flash-preview',        thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2000 },
+  'flash-31-minimal': { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
+  'flash-31-low':     { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1400 },
+  'flash-31-mid':     { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'MEDIUM' }, maxOutputTokens: 1500 },
+  'flash-31-high':    { model: 'gemini-3.1-flash-lite-preview', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2300 },
+};
+
+// ── STORAGE ──
+async function requestStoragePersist() {
+  if (!navigator.storage?.persist) return false;
+  const persisted = await navigator.storage.persisted();
+  if (persisted) return true;
+  return await navigator.storage.persist();
+}
+
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('livemaxai') || '{}');
+
+    if (s.source)    state.source    = s.source;
+    if (s.deviceId)  state.deviceId  = s.deviceId;
+    if (s.modelPreset && MODEL_CONFIG[s.modelPreset]) state.modelPreset = s.modelPreset;
+    if (s.useProxy !== undefined) state.useProxy = s.useProxy;
+    if (s.apiKey)    state.apiKey    = s.apiKey;
+    const mp2 = JSON.parse(localStorage.getItem('memo_presets') || 'null');
+    if (Array.isArray(mp2)) state.memoPresets = mp2;
+    if (s.pinnedMemoIdx !== undefined) state.pinnedMemoIdx = s.pinnedMemoIdx;
+    const se = JSON.parse(localStorage.getItem('space_env') || 'null');
+    if (se) state.spaceEnv = { ...state.spaceEnv, ...se };
+    const sp = JSON.parse(localStorage.getItem('space_presets') || 'null');
+    if (Array.isArray(sp)) state.spacePresets = sp;
+    const mp = JSON.parse(localStorage.getItem('mix_pref') || 'null');
+    if (mp) state.mixPref = { ...state.mixPref, ...mp };
+  } catch(e) {}
+}
+function saveToStorage() {
+  localStorage.setItem('livemaxai', JSON.stringify({
+    source: state.source, deviceId: state.deviceId,
+    modelPreset: state.modelPreset,
+    useProxy: state.useProxy,
+    apiKey: state.apiKey,
+    pinnedMemoIdx: state.pinnedMemoIdx,
+  }));
+  if (state.apiKey) requestStoragePersist();
+}
+
+// ── SETTINGS PANEL ──
+function toggleSettings() {
+  const overlay = document.getElementById('settings-overlay');
+  const btn = document.getElementById('settings-btn');
+  const isOpen = overlay.classList.toggle('show');
+  btn.classList.toggle('active', isOpen);
+  if (isOpen) renderSettings();
+}
+function closeSettingsOnBg(e) {
+  if (e.target === document.getElementById('settings-overlay')) toggleSettings();
+}
+
+// ── LAMP ──
+function setLamp(mode, labelKey) {
+  document.getElementById('lamp').className = 'lamp' + (mode ? ' ' + mode : '');
+  const lampEl = document.getElementById('lamp-label');
+  lampEl.dataset.lampState = labelKey;
+  lampEl.textContent = t('lamp_' + labelKey);
+}
+
+// ── AUDIO INIT ──
+async function initAudio(deviceId, existingStream) {
+  try {
+    if (state.micStream) state.micStream.getTracks().forEach(t => t.stop());
+    if (state.audioCtx)  { await state.audioCtx.close(); state.audioCtx = null; state.analyser = null; state.compressor = null; }
+
+    let stream;
+    if (existingStream) {
+      stream = existingStream;
+    } else {
+      const audioConstraints = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        ...(deviceId && deviceId !== 'default' ? { deviceId: { exact: deviceId } } : {})
+      };
+      const constraints = { audio: audioConstraints, video: false };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    }
+    state.micStream = stream;
+    state.audioCtx  = new (window.AudioContext || window.webkitAudioContext)();
+    state.analyser  = state.audioCtx.createAnalyser();
+    state.analyser.fftSize = 2048;
+    state.analyser.smoothingTimeConstant = 0.75;
+
+    state.compressor = state.audioCtx.createDynamicsCompressor();
+    state.compressor.knee.value = 10;
+    state.compressor.attack.value = 0.01;
+    state.compressor.release.value = 0.2;
+    state.compressor.threshold.value = 0;
+    state.compressor.ratio.value = 1;
+
+    const src = state.audioCtx.createMediaStreamSource(stream);
+    state.lowshelf = state.audioCtx.createBiquadFilter();
+    state.lowshelf.type = 'lowshelf';
+    state.lowshelf.frequency.value = 80;
+    state.lowshelf.gain.value = 0;
+    src.connect(state.compressor);
+    state.compressor.connect(state.lowshelf);
+    state.lowshelf.connect(state.analyser);
+
+    setLamp('active', 'active');
+    await acquireWakeLock();
+    await loadDevices();
+    return true;
+  } catch(e) {
+    setLamp('', 'error');
+    if (e.name === 'NotAllowedError') {
+      showError(t('err_mic_perm'));
+    } else if (e.name === 'NotFoundError') {
+      showError(t('err_mic_notfound'));
+    } else {
+      showError(t('err_mic_general'));
+    }
+    return false;
+  }
+}
+
+function showError(msg) {
+  alert(msg);
+}
+
+// ── WAKE LOCK ──
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    if (state.wakeLock) return;
+    state.wakeLock = await navigator.wakeLock.request('screen');
+    state.wakeLock.addEventListener('release', () => { state.wakeLock = null; });
+  } catch(e) {}
+}
+async function releaseWakeLock() {
+  if (!state.wakeLock) return;
+  try { await state.wakeLock.release(); } catch(e) {}
+  state.wakeLock = null;
+}
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && state.micStream) {
+    await acquireWakeLock();
+  }
+});
+
+async function loadDevices() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    state.devices = devs.filter(d => d.kind === 'audioinput');
+    renderDeviceSelect();
+  } catch(e) {}
+}
+function renderDeviceSelect() {
+  const sel = document.getElementById('device-select');
+  if (!sel) return;
+  sel.innerHTML = state.devices.map(d =>
+    `<option value="${d.deviceId}" ${d.deviceId === state.deviceId ? 'selected' : ''}>
+      ${d.label || t('device_mic_n') + (state.devices.indexOf(d)+1)}
+    </option>`
+  ).join('');
+}
+async function changeDevice(deviceId) {
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  let newStream = null;
+
+  // Pre-request permission before switching
+  try {
+    newStream = await navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: { exact: deviceId }, echoCancellation: false, noiseSuppression: false },
+      video: false
+    });
+  } catch(e) {
+    if (isAndroid || e.name === 'OverconstrainedError') {
+      // Android PWA fallback: use ideal instead of exact
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { ideal: deviceId }, echoCancellation: false, noiseSuppression: false },
+          video: false
+        });
+      } catch(e2) {
+        showError(t('alert_device_err'));
+        renderDeviceSelect(); // revert UI to current device
+        return;
+      }
+    } else {
+      showError(t('alert_device_err'));
+      renderDeviceSelect(); // revert UI to current device
+      return;
+    }
+  }
+
+  // Success: replace stream
+  state.deviceId = deviceId;
+  saveToStorage();
+  await initAudio(deviceId, newStream);
+}
+
+// ── AGC ──
+const AGC_ATTACK     = 0.12;
+const AGC_RELEASE    = 0.04;
+const AGC_DEADZONE   = 0.02;
+const AGC_BUF_FRAMES = 60;   // 60fps 기준 약 1초
+const AGC_INTERVAL   = 500; // 게인 적용 간격 (ms)
+
+let agcBuffer  = [];
+let lastAGCTime = 0;
+
+function updateAGC(rawVals) {
+  if (!state.agcOn) { updateAGCDisplay(); return; }
+
+  // RMS 계산 후 슬라이딩 윈도우 버퍼에 누적
+  const rms = Math.sqrt(rawVals.reduce((s, v) => s + v * v, 0) / rawVals.length);
+  agcBuffer.push(rms);
+  if (agcBuffer.length > AGC_BUF_FRAMES) agcBuffer.shift();
+
+  // 게인 적용은 INTERVAL 간격으로만
+  const now = Date.now();
+  if (now - lastAGCTime < AGC_INTERVAL) { updateAGCDisplay(); return; }
+  lastAGCTime = now;
+
+  const avgRms = agcBuffer.reduce((s, v) => s + v, 0) / agcBuffer.length;
+  if (avgRms < 0.06) { updateAGCDisplay(); return; }
+
+  const desired = Math.min(Math.max(0.57/ avgRms, 0.5), 4.0);
+  const diff = desired - state.agcGain;
+
+  if (Math.abs(diff) < AGC_DEADZONE) { updateAGCDisplay(); return; }
+
+  state.agcGain += diff * (diff < 0 ? AGC_ATTACK : AGC_RELEASE);
+  updateAGCDisplay();
+}
+function updateAGCDisplay() {
+  const el = document.getElementById('agc-val');
+  if (!el) return;
+  const db = Math.round(20 * Math.log10(state.agcGain * state.manualGain) * 10) / 10;
+  el.textContent = (db >= 0 ? '+' : '') + db + ' dB';
+}
+function toggleAGC(on) {
+  state.agcOn = on;
+  if (!on) { state.agcGain = 1.0; updateAGCDisplay(); }
+}
+function setManualGain(val) {
+  const db = (val - 50) * 0.48;
+  state.manualGain = Math.pow(10, db / 20);
+  const dbR = Math.round(db * 10) / 10;
+  const el = document.getElementById('manual-gain-val');
+  if (el) el.textContent = (dbR >= 0 ? '+' : '') + dbR + ' dB';
+  updateAGCDisplay();
+}
+function setLowshelf(val) {
+  if (!state.lowshelf) return;
+  const v = parseFloat(val);
+  if (v <= 0) { state.lowshelf.gain.value = 0; state.lowshelf.frequency.value = 80; return; }
+  state.lowshelf.frequency.value = 80 + (v / 100) * 40;
+  state.lowshelf.gain.value = -(v / 100) * 15;
+}
+function toggleSource() {
+  state.source = state.source === 'phone' ? 'interface' : 'phone';
+  updateSourceUI(); saveToStorage();
+}
+function updateSourceUI() {
+  const mb = document.getElementById('src-mobile-btn');
+  const lb = document.getElementById('src-line-btn');
+  if (!mb||!lb) return;
+  const p = state.source === 'phone';
+  mb.style.background = p ? 'var(--accent)' : 'transparent';
+  mb.style.color      = p ? '#000' : 'var(--muted2)';
+  lb.style.background = !p ? 'var(--accent)' : 'transparent';
+  lb.style.color      = !p ? '#000' : 'var(--muted2)';
+  const ph=document.getElementById('src-phone'), it=document.getElementById('src-interface');
+  if(ph) ph.classList.toggle('selected',p);
+  if(it) it.classList.toggle('selected',!p);
+  document.querySelectorAll('.radio-dot-inner').forEach((d,i)=>{d.style.display=(i===0&&p)||(i===1&&!p)?'block':'none';});
+}
+function setComp(val) {
+  if (!state.compressor) return;
+  const v = parseFloat(val);
+  if (v <= 0.01) { state.compressor.threshold.value = 0; state.compressor.ratio.value = 1; }
+  else { state.compressor.threshold.value = -(12 + v * 38); state.compressor.ratio.value = 2 + v * 18; }
+}
+// ── DRY / WET ──
+function toggleDryWet() {
+  state.wetMode = !state.wetMode;
+  updateDryWetUI();
+}
+function updateDryWetUI() {
+  const dry = document.getElementById('dry-btn');
+  const wet = document.getElementById('wet-btn');
+  if (!dry || !wet) return;
+  const w = state.wetMode;
+  dry.style.background = !w ? 'var(--accent)' : 'transparent';
+  dry.style.color      = !w ? '#000' : 'var(--muted2)';
+  wet.style.background =  w ? 'var(--accent)' : 'transparent';
+  wet.style.color      =  w ? '#000' : 'var(--muted2)';
+}
+
+// ── ANALYSIS MODE (MIX / SOLO / SPEECH) ──
+function setAnalysisMode(mode) {
+  state.analysisMode = mode;
+  state.soloMode = (mode === 'solo');
+  if (mode === 'speech') {
+    state.mixPref.type = 'speech';
+    localStorage.setItem('mix_pref', JSON.stringify(state.mixPref));
+    renderMixPref();
+  } else if (state.mixPref.type === 'speech') {
+    state.mixPref.type = 'music';
+    localStorage.setItem('mix_pref', JSON.stringify(state.mixPref));
+    renderMixPref();
+  }
+  updateAnalysisModeUI();
+}
+function updateAnalysisModeUI() {
+  ['mix','solo','speech'].forEach(m => {
+    const el = document.getElementById('amode-' + m);
+    if (!el) return;
+    const active = state.analysisMode === m;
+    el.style.background = active ? 'var(--accent)' : 'transparent';
+    el.style.color      = active ? '#000' : 'var(--muted2)';
+  });
+}
+
+// ── 메모 프리셋 ──
+function resetMemo() {
+  const el = document.getElementById('instant-memo');
+  if (!el) return;
+  if (state.pinnedMemoIdx >= 0 && state.memoPresets[state.pinnedMemoIdx]) {
+    el.value = state.memoPresets[state.pinnedMemoIdx].text;
+  } else {
+    el.value = '';
+  }
+}
+function saveMemoPreset() {
+  const text = document.getElementById('instant-memo')?.value.trim();
+  if (!text) return;
+  const name = prompt(t('memo_preset_name') || '프리셋 이름을 입력하세요');
+  if (!name) return;
+  state.memoPresets.push({ name, text });
+  localStorage.setItem('memo_presets', JSON.stringify(state.memoPresets));
+  renderMemoPresets();
+}
+function loadMemoPreset(idx) {
+  const preset = state.memoPresets[idx];
+  if (!preset) return;
+  const el = document.getElementById('instant-memo');
+  if (el) el.value = preset.text;
+}
+function pinMemoPreset(idx) {
+  state.pinnedMemoIdx = (state.pinnedMemoIdx === idx) ? -1 : idx;
+  saveToStorage();
+  renderMemoPresets();
+}
+function deleteMemoPreset(idx) {
+  state.memoPresets.splice(idx, 1);
+  if (state.pinnedMemoIdx === idx) state.pinnedMemoIdx = -1;
+  else if (state.pinnedMemoIdx > idx) state.pinnedMemoIdx--;
+  localStorage.setItem('memo_presets', JSON.stringify(state.memoPresets));
+  saveToStorage();
+  renderMemoPresets();
+}
+function renderMemoPresets() {
+  const list = document.getElementById('memo-preset-list');
+  if (!list) return;
+  list.innerHTML = '';
+  state.memoPresets.forEach((p, i) => {
+    const pinned = state.pinnedMemoIdx === i;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    row.innerHTML = `
+      <button onclick="loadMemoPreset(${i})" style="flex:1;text-align:left;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-family:var(--font-mono);font-size:var(--xs);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.name}</button>
+      <button onclick="pinMemoPreset(${i})" title="${pinned ? '고정 해제' : '고정'}" style="background:${pinned ? 'var(--accent)' : 'var(--surface2)'};color:${pinned ? '#000' : 'var(--muted2)'};border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:var(--xs);cursor:pointer;">📌</button>
+      <button onclick="deleteMemoPreset(${i})" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:var(--xs);color:var(--muted2);cursor:pointer;">✕</button>
+    `;
+    list.appendChild(row);
+  });
+}
+
+// ── METER ──
+const canvas = document.getElementById('meter');
+const ctx = canvas.getContext('2d');
+
+function drawMeter() {
+  requestAnimationFrame(drawMeter);
+  if (!state.analyser) return;
+
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  canvas.width = W * devicePixelRatio; canvas.height = H * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.fillStyle = '#0f1218'; ctx.fillRect(0,0,W,H);
+
+  const bufLen = state.analyser.frequencyBinCount;
+  const data = new Uint8Array(bufLen);
+  state.analyser.getByteFrequencyData(data);
+  const nyq = state.audioCtx.sampleRate / 2;
+  const n = BANDS.length, gap = 2;
+  const bw = (W - gap * (n-1)) / n;
+
+  const rawVals = BANDS.map(f => { const bin = Math.round(f/nyq*bufLen); return data[Math.min(bin,bufLen-1)]/255; });
+  updateAGC(rawVals);
+
+  const bandVals = rawVals.map((raw,i) => {
+    let val = raw * state.agcGain * state.manualGain;
+    if (state.source === 'phone') val += PHONE_CORRECTION[i]/40;
+    return { val: Math.max(0,Math.min(1,val)), raw, f: BANDS[i] };
+  });
+
+  bandVals.forEach(({val}, i) => {
+    const x = i*(bw+gap), barH = val*H;
+    const color = val > 0.85 ? '#ff4444' : val > 0.65 ? '#ff9500' : val > 0.4 ? '#aaff44' : '#00ff88';
+    ctx.fillStyle = color+'22'; ctx.fillRect(x,0,bw,H);
+    ctx.fillStyle = color; ctx.fillRect(x,H-barH,bw,barH);
+  });
+
+  detectHowling(bandVals, rawVals);
+}
+
+// ── HOWLING ──
+function detectHowling(bandVals, rawVals) {
+  const n = bandVals.length;
+  let foundIdx = -1;
+  for (let i = 2; i < n-2; i++) {
+    const center = rawVals[i];
+    if (center < 0.35) { state.howlingFrames[i] = Math.max(0,(state.howlingFrames[i]||0)-2); continue; }
+    const neighbors = (rawVals[i-2]+rawVals[i-1]+rawVals[i+1]+rawVals[i+2])/4;
+    if (neighbors < 0.01) continue;
+    if (center/neighbors > 4.0) {
+      state.howlingFrames[i] = (state.howlingFrames[i]||0)+1;
+      if (state.howlingFrames[i] >= HOWL_SUSTAIN_FRAMES) { foundIdx = i; break; }
+    } else {
+      state.howlingFrames[i] = Math.max(0,(state.howlingFrames[i]||0)-2);
+    }
+  }
+  if (foundIdx >= 0) {
+    const freq = BANDS[foundIdx];
+    const freqStr = freq >= 1000 ? (freq/1000).toFixed(1)+'kHz' : freq+'Hz';
+    if (!state.howlBarDismissed) showHowlBar(freqStr);
+  } else {
+    const bar = document.getElementById('howl-bar');
+    if (bar?.classList.contains('show') && !bar.classList.contains('dismissed')) {
+      bar.classList.add('dismissed');
+      const title = bar.querySelector('.howl-bar-title');
+      const timeEl = document.getElementById('howl-bar-time');
+      if (title) title.textContent = t('howl_last');
+      if (timeEl) { const n=new Date(); timeEl.textContent=n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0')+' '+t('howl_at'); }
+    }
+  }
+}
+function showHowlBar(freqStr) {
+  const bar = document.getElementById('howl-bar');
+  const freqEl = document.getElementById('howl-bar-freq');
+  const title = bar?.querySelector('.howl-bar-title');
+  if (!bar) return;
+  if (title) title.textContent = t('howl_title');
+  if (freqEl) freqEl.textContent = freqStr + ' ' + t('howl_near');
+  document.getElementById('howl-bar-time').textContent = '';
+  bar.classList.remove('dismissed');
+  bar.classList.add('show');
+  state.howlBarDismissed = false;
+}
+function dismissHowlBar() {
+  const bar = document.getElementById('howl-bar');
+  if (!bar) return;
+  bar.classList.remove('show');
+  state.howlBarDismissed = true;
+  setTimeout(() => { state.howlBarDismissed = false; }, 500);
+}
+
+// ── REALTIME BALANCE ──
+const TARGET_CURVE = [
+  0.28, 0.38, 0.52, 0.62, 0.70, 0.76, 0.80, 0.82, // 20~125Hz
+  0.83, 0.84, 0.85, 0.86, 0.87, 0.88, 0.87, 0.86, // 160~630Hz
+  0.84, 0.82, 0.80, 0.77, 0.74, 0.70, 0.66, 0.61, // 800Hz~4kHz
+  0.56, 0.50, 0.44, 0.38, 0.32, 0.26, 0.20, 0.15  // 5k~22kHz
+];
+
+const RT_MESSAGES = {
+  ko: {
+    low_excess: [
+      "킥이 너무 신나있어요 🥁 저역 살짝 눌러볼까요?",
+      "베이스가 방을 점령했네요! 80Hz 부근 확인해보세요",
+      "저역이 파티 중이에요 🎉 조금만 진정시켜볼까요?",
+      "킥 드럼이 보컬을 이기고 있어요, 한 번 잡아볼까요?"
+    ],
+    low_lack: [
+      "저역이 좀 허전한데요? 킥에 힘 실어볼까요! 💪",
+      "베이스가 숨어있어요~ 꺼내줄 시간이에요",
+      "바닥이 비어있어요! 저역에 에너지 좀 더 줘볼까요?"
+    ],
+    lowmid_excess: [
+      "뭔가 먹먹하죠? 저중역이 뭉쳐있어요 🫧",
+      "200-400Hz 대역이 좀 과해요, 보컬이 묻힐 수 있어요",
+      "소리가 박스 안에 갇힌 느낌? 저중역 한번 열어봐요!",
+      "탁한 느낌 있죠? 250Hz 부근 살짝 빼볼까요?"
+    ],
+    lowmid_lack: [
+      "소리가 좀 얇은 것 같아요~ 저중역에 살 좀 붙여볼까요?",
+      "악기들이 붕 떠있는 느낌, 중저역 채워볼까요?"
+    ],
+    mid_excess: [
+      "중역이 앞으로 너무 튀어나왔어요! 한 발 물러나볼까요?",
+      "1kHz 부근이 코를 찌르는 느낌이에요 👃 살짝 빼보세요",
+      "보컬이 너무 날카롭진 않나요? 중역 체크해봐요",
+      "귀가 좀 피곤하다면 1-2kHz 확인해보세요 👂"
+    ],
+    mid_lack: [
+      "보컬이 안 들려요! 중역에 에너지 넣어볼까요? 🎤",
+      "악기 선명도가 떨어지는 것 같아요, 중역 올려볼까요?",
+      "소리가 멀리서 들리는 느낌? 중역을 앞으로 당겨봐요!"
+    ],
+    highmid_excess: [
+      "치찰음이 쏘는 느낌 있죠? 3-5kHz 살짝 빼볼게요 ✂️",
+      "고중역이 좀 공격적이에요! 귀 보호해줄 시간이에요 😅",
+      "4kHz 부근이 너무 앞에 있어요, 한 걸음 뒤로!",
+      "좀 쌔한 느낌? 고중역 살짝 다듬어볼까요?"
+    ],
+    highmid_lack: [
+      "악기 어택감이 좀 죽어있어요~ 고중역 살려볼까요? ⚡",
+      "선명도가 부족해요! 3kHz 부근 올려보세요",
+      "소리가 뭉툭한 느낌, 고중역에 엣지 줘볼까요?"
+    ],
+    high_excess: [
+      "치이익~ 고역이 좀 날카롭네요! 8kHz 이상 살짝 내려봐요",
+      "에어가 너무 많아요 🌬️ 고역 다듬어볼까요?",
+      "심벌이 귀를 찌르고 있어요, 잡아볼까요? 🎵"
+    ],
+    high_lack: [
+      "소리가 답답한 느낌? 고역에 공기 좀 넣어볼까요! 🌟",
+      "심벌이 안 보여요~ 에어 대역 살려볼까요?",
+      "소리가 어둡네요, 고역을 열어볼까요? ✨",
+      "하이가 없으면 심심하죠! 8kHz 이상 올려봐요"
+    ],
+    balanced: [
+      "지금 이 믹스 꽤 괜찮은데요? 🎚️",
+      "엔지니어 오늘 귀 열려있네요 👂✨",
+      "균형 잡힌 소리예요! 이대로 가요 💪",
+      "MaxAI도 지금 이 믹스 좋아요 🎶",
+      "완벽하진 않아도 충분히 좋아요, 유지하세요!",
+      "오늘 믹스 안정적이에요, 잘 하고 계세요 🙌"
+    ]
+  },
+  en: {
+    low_excess: [
+      "Kick has too much energy 🥁 Try pulling back the low end",
+      "Bass is taking over the room! Check around 80Hz",
+      "Low-end party going on 🎉 Let's calm it down a touch",
+      "Kick is overpowering the vocals — rein it in?"
+    ],
+    low_lack: [
+      "Low end feels a bit empty 💪 Give the kick some body!",
+      "Bass is hiding ~ time to bring it forward",
+      "The floor is bare! Let's add some low-end energy"
+    ],
+    lowmid_excess: [
+      "Sounds a bit muddy? Low-mids are clumping up 🫧",
+      "200–400Hz feels heavy — vocals might get buried",
+      "Boxed-in sound? Try opening up the low-mids!",
+      "Thick and murky? A small cut around 250Hz might help"
+    ],
+    lowmid_lack: [
+      "Mix feels a bit thin ~ add some body to the low-mids?",
+      "Instruments feel floaty — fill in that low-mid foundation"
+    ],
+    mid_excess: [
+      "Mids are pushing too far forward! Step back a little",
+      "Something poking around 1kHz 👃 Try a small cut",
+      "Vocals sounding harsh? Check the mids",
+      "Ears getting tired? Look at 1–2kHz 👂"
+    ],
+    mid_lack: [
+      "Vocals getting lost! Add some mid energy 🎤",
+      "Instrument definition feels soft — try lifting the mids",
+      "Mix sounds distant? Pull the mids forward!"
+    ],
+    highmid_excess: [
+      "Sibilance stinging a bit? Trim 3–5kHz ✂️",
+      "High-mids are a bit aggressive! Protect those ears 😅",
+      "4kHz is too forward — dial it back!",
+      "Feeling harsh? Smooth out the upper mids"
+    ],
+    highmid_lack: [
+      "Instrument attack feels dull ~ bring back the high-mids ⚡",
+      "Lacking definition! Try lifting around 3kHz",
+      "Sound feels blunt — add some edge to the upper mids"
+    ],
+    high_excess: [
+      "Hissy highs! Ease back above 8kHz",
+      "Too much air 🌬️ Tame the top end a bit",
+      "Cymbals are piercing — rein them in 🎵"
+    ],
+    high_lack: [
+      "Mix feels a bit dark 🌟 Add some air to the highs!",
+      "Cymbals disappearing ~ revive that air band",
+      "Sound is dark — open up the highs ✨",
+      "Missing that shimmer! Try lifting above 8kHz"
+    ],
+    balanced: [
+      "This mix is sounding pretty good! 🎚️",
+      "Engineer's ears are dialled in today 👂✨",
+      "Nice balance! Keep it going 💪",
+      "MaxAI is vibing with this mix 🎶",
+      "Not perfect, but solid — keep it there!",
+      "Mix is stable today, nice work 🙌"
+    ]
+  }
+};
+
+let bandAccum = new Array(32).fill(0);
+let accumCount = 0;
+let lastRtTime = 0;
+let lastRtLine = '';
+
+function checkBalance(bandVals) {
+  // 30초 누적
+  bandVals.forEach((b, i) => { if (i < 32) bandAccum[i] += b.val; });
+  accumCount++;
+
+  const now = Date.now();
+  if (now - lastRtTime < 30000) return;
+  if (accumCount < 30) return;
+
+  const avgVals = bandAccum.map(s => s / accumCount);
+  bandAccum = new Array(32).fill(0);
+  accumCount = 0;
+  lastRtTime = now;
+
+  // 타깃 커브와 비교 — 가장 크게 벗어난 대역 하나
+  let maxDev = 0, maxIdx = -1;
+  avgVals.forEach((avg, i) => {
+    const dev = avg - TARGET_CURVE[i];
+    if (Math.abs(dev) > Math.abs(maxDev) && Math.abs(dev) >= 0.15) {
+      maxDev = dev;
+      maxIdx = i;
+    }
+  });
+
+  let category;
+  if (maxIdx === -1) {
+    category = 'balanced';
+  } else {
+    const excess = maxDev > 0;
+    if (maxIdx <= 7)       category = excess ? 'low_excess'     : 'low_lack';
+    else if (maxIdx <= 15) category = excess ? 'lowmid_excess'  : 'lowmid_lack';
+    else if (maxIdx <= 21) category = excess ? 'mid_excess'     : 'mid_lack';
+    else if (maxIdx <= 23) category = excess ? 'highmid_excess' : 'highmid_lack';
+    else                   category = excess ? 'high_excess'    : 'high_lack';
+  }
+
+  const msgs = (RT_MESSAGES[state.lang] || RT_MESSAGES.ko)[category];
+  const msg = msgs[Math.floor(Math.random() * msgs.length)];
+  if (msg === lastRtLine) return;
+  lastRtLine = msg;
+  const el = document.getElementById('rt-line');
+  if (el) el.textContent = msg;
+}
+
+// ── MIC ──
+async function handleMic() {
+  if (state.isAnalyzing || state.isRecording) return;
+  if (!state.audioCtx || !state.micStream) {
+    const ok = await initAudio(state.deviceId);
+    if (!ok) return;
+  }
+  startRecording();
+}
+
+function startRecording() {
+  state.isRecording = true;
+  state.audioChunks = [];
+  state.analysisCount++;
+  const num = state.analysisCount;
+
+  const btn = document.getElementById('mic-btn');
+  btn.classList.add('recording');
+  setLamp('rec', 'rec');
+  hideEmptyState();
+
+  const listEl = document.getElementById('analysis-list');
+  const now = new Date();
+  const timeStr = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+  const g = document.createElement('div');
+  g.className = 'card-group card-anim';
+  g.id = 'group-'+num;
+  g.innerHTML = `
+    <div class="card-meta">
+      <span class="card-badge badge-maxai">MAX AI</span>
+      <span>${timeStr}</span>
+    </div>
+    <div class="thinking-card" id="status-${num}">
+      <span id="status-icon-${num}" style="font-size:var(--md)">🔴</span>
+      <span id="status-text-${num}">${t('status_rec')}</span>
+      <div class="thinking-dots" id="status-dots-${num}" style="display:none"><span></span><span></span><span></span></div>
+    </div>`;
+  listEl.insertBefore(g, listEl.firstChild);
+
+  const recCtx = new AudioContext();
+  const recSrc = recCtx.createMediaStreamSource(state.micStream);
+  const recDst = recCtx.createMediaStreamDestination();
+  if (state.wetMode) {
+    const agcNode = recCtx.createGain();
+    agcNode.gain.value = state.agcGain;
+    const manGainNode = recCtx.createGain();
+    manGainNode.gain.value = state.manualGain;
+    const recComp = recCtx.createDynamicsCompressor();
+    recComp.knee.value      = state.compressor.knee.value;
+    recComp.attack.value    = state.compressor.attack.value;
+    recComp.release.value   = state.compressor.release.value;
+    recComp.threshold.value = state.compressor.threshold.value;
+    recComp.ratio.value     = state.compressor.ratio.value;
+    recSrc.connect(agcNode);
+    agcNode.connect(manGainNode);
+    manGainNode.connect(recComp);
+    recComp.connect(recDst);
+  } else {
+    recSrc.connect(recDst);
+  }
+  const recorder = new MediaRecorder(recDst.stream, { mimeType: AUDIO_MIME });
+  state.mediaRecorder = recorder;
+  recorder.ondataavailable = e => { if(e.data.size>0) state.audioChunks.push(e.data); };
+  recorder.onstop = () => { recCtx.close(); onRecordingStop(num); };
+  // resume() ensures AudioContext is not suspended (browser may auto-suspend new contexts)
+  recCtx.resume().then(() => recorder.start(500));
+
+  let sec = 5;
+  document.getElementById('countdown').textContent = sec;
+  state.countdownTimer = setInterval(() => {
+    sec--;
+    if (sec <= 0) {
+      clearInterval(state.countdownTimer);
+      document.getElementById('countdown').textContent = '';
+      const icon = document.getElementById('status-icon-'+num);
+      const txt  = document.getElementById('status-text-'+num);
+      if (icon) icon.textContent = '📡';
+      if (txt)  txt.textContent  = t('status_sending');
+      recorder.stop();
+    } else {
+      document.getElementById('countdown').textContent = sec;
+      const txt = document.getElementById('status-text-'+num);
+      if (txt) txt.textContent = t('status_rec_n').replace('{n}', sec);
+    }
+  }, 1000);
+}
+
+async function onRecordingStop(num) {
+  state.isRecording = false;
+  document.getElementById('mic-btn').classList.remove('recording');
+  document.getElementById('mic-btn').classList.add('analyzing');
+  setLamp('analyze', 'analyze');
+  state.isAnalyzing = true;
+
+  const icon = document.getElementById('status-icon-'+num);
+  const txt  = document.getElementById('status-text-'+num);
+  const dots = document.getElementById('status-dots-'+num);
+  if (icon) icon.textContent = '🔍';
+  if (txt)  txt.textContent  = t('status_analyzing');
+  if (dots) dots.style.display = 'flex';
+
+  const blob = new Blob(state.audioChunks, { type: AUDIO_MIME });
+  await analyzeWithGemini(blob, num);
+
+  state.isAnalyzing = false;
+  document.getElementById('mic-btn').classList.remove('analyzing');
+  setLamp('active', 'active');
+  startGeminiCooldown(25);
+}
+
+function startGeminiCooldown(sec) {
+  const btn = document.getElementById('mic-btn');
+  const label = document.getElementById('mic-label');
+  btn.style.opacity = '0.5';
+  btn.style.pointerEvents = 'none';
+  let remaining = sec;
+  const secSuffix = () => state.lang === 'en' ? remaining + 's)' : remaining + '초)';
+  label.textContent = 'MAX AI (' + secSuffix();
+  const timer = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(timer);
+      btn.style.opacity = '';
+      btn.style.pointerEvents = '';
+      label.textContent = 'MAX AI';
+    } else {
+      label.textContent = 'MAX AI (' + secSuffix();
+    }
+  }, 1000);
+}
+
+// ── AUDIO FORMAT ──
+const AUDIO_MIME        = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+  ? 'audio/webm;codecs=opus'
+  : 'audio/mp4';
+const AUDIO_GEMINI_MIME = AUDIO_MIME.split(';')[0]; // Gemini API용 정규화 (codecs 파라미터 제거)
+
+// ── GEMINI ──
+async function analyzeWithGemini(audioBlob, num) {
+  const groupEl  = document.getElementById('group-'+num);
+  const statusEl = document.getElementById('status-'+num);
+  try {
+    const base64 = await blobToBase64(audioBlob);
+
+    // 1. SYSTEM_PROMPT + 믹스 취향
+    let mixSection;
+    if (state.soloMode) {
+      // SOLO 모드: 사운드밀도·저역느낌만 전달
+      const soloLines = [SYSTEM_PROMPT, ''];
+      soloLines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
+      const density = MIX_PROMPTS.soundDensity[state.mixPref.density];
+      if (density) soloLines.push(`Sound density: ${density}`);
+      const bf = MIX_PROMPTS.bassFeeling[state.mixPref.lowFeel];
+      if (bf) soloLines.push(`Low end: ${bf}`);
+      mixSection = soloLines.filter(l => l !== undefined).join('\n');
+    } else {
+      mixSection = buildMixPrompt(state.mixPref);
+    }
+
+    // 2. 공간 환경 + 공간 메모 (SOLO 모드에서는 생략)
+    const env = state.spaceEnv;
+    let spaceSection = '';
+    if (!state.soloMode) {
+      if ((env.mode || 'live') === 'studio') {
+        spaceSection = '공간 환경: 공간크기=소형 실내, 반사음=적음, 서브우퍼=없음, 딜레이스피커=없음, 피드백여유=보통, never mention room acoustics, reflections, or space characteristics in advice';
+         mixSection = mixSection
+          .replace(
+          'You are a live PA sound engineer advisor.', 
+          'You are a professional studio recording engineer.'
+          );
+      } else {
+        const envParts = [];
+        if (env.venue)  envParts.push(`공간크기=${env.venue}`);
+        if (env.reverb) envParts.push(`반사음=${env.reverb}`);
+        if (env.sub)    envParts.push(`서브우퍼=${env.sub}`);
+        if (env.delay)  envParts.push(`딜레이스피커=${env.delay}`);
+        if (env.fb)     envParts.push(`피드백여유=${env.fb}`);
+        spaceSection = [
+          envParts.length ? '공간 환경: ' + envParts.join(', ') : '',
+          env.memo ? '공간 메모: ' + env.memo : '',
+        ].filter(Boolean).join('\n');
+      }
+    }
+
+    // 3. 입력 소스
+    const sourceInfo = state.source === 'phone'
+       ? 'Input: Phone mic. Low <200Hz weak, 2.5~5kHz boosted, vocals prominent. Prefer balance/room advice over EQ cuts. Never mention mic type.'
+       : 'Input: Audio interface (flat, accurate frequency response)';
+
+    // 5. 즉석 메모
+    const instantMemo = document.getElementById('instant-memo')?.value.trim();
+    const memoSection = instantMemo ? '즉석 메모: ' + instantMemo : '';
+
+    // 6. 사용자 힌트
+    const userHint = document.getElementById('user-hint-input')?.value.trim();
+    const hintSection = userHint
+      ? `[User focus — OVERRIDE PRIORITY]\nThe user specifically wants advice on: ${userHint}\nEven if this element sounds quiet or subtle in the clip, do NOT ignore it. Analyze and advise on it regardless of volume. This overrides the "ignore any source not heard" constraint.`
+      : state.analysisMode === 'speech'
+        ? '[User focus] Speech intelligibility is the absolute priority. Focus on vocal clarity, intelligibility, and any frequency masking of speech.'
+        : '';
+
+    // 7. 이슈 히스토리
+    const historySection = state.issueHistory.length
+      ? 'ALREADY ADVISED — Do NOT repeat or rephrase any of these suggestions. Find a different problem:\n' + state.issueHistory.join('\n')
+      : '';
+
+    const contextBlock = [mixSection, spaceSection, sourceInfo, memoSection, hintSection, historySection].filter(Boolean).join('\n');
+
+    const soloNote = state.soloMode
+      ? '\nSingle instrument analysis mode. Focus only on the single most dominant instrument. Treat any other faint or background sounds as irrelevant bleed and ignore them completely. Do not give band balance advice.'
+      : '';
+
+    const silenceNote = '\n: the clip is completely silent with zero musical content, output: SILENT';
+
+    const prompt = `${contextBlock}${soloNote}${silenceNote}
+
+${t('ai_prompt')}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 35000);
+    const useDirectApi = !state.useProxy && state.apiKey;
+    const cfg = MODEL_CONFIG[state.modelPreset] || MODEL_CONFIG['flash-31-minimal'];
+    const apiUrl = useDirectApi
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${state.apiKey}`
+      : `https://proxy.dumpit.dev/v1beta/models/${cfg.model}:generateContent`;
+    const response = await fetch(
+      apiUrl,
+      {
+        method:'POST', signal:controller.signal,
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          contents:[{parts:[
+            {text:prompt},
+            {inline_data:{mime_type:AUDIO_GEMINI_MIME,data:base64}}
+          ]}],
+          generationConfig:{
+            maxOutputTokens: cfg.maxOutputTokens,
+            temperature: 0.7,
+            thinkingConfig: cfg.thinkingConfig,
+          }
+        })
+      }
+    );
+    clearTimeout(timeout);
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    const parts = data.candidates?.[0]?.content?.parts||[];
+    const text = parts.filter(p=>p.text && !p.thought).map(p=>p.text).join('').trim();
+    if (!text) throw new Error(t('err_empty'));
+    // SCORE / CHANNELS를 위치·형식에 무관하게 전체 텍스트에서 추출
+    const scoreGlobal = text.match(/SCORE\s*:\s*(\d+)/i);
+    const score = scoreGlobal ? parseInt(scoreGlobal[1]) : null;
+    const channelGlobal = text.match(/CHANNELS\s*:\s*([^\n,][^\n]*)/i);
+    const channels = channelGlobal
+      ? channelGlobal[1].split(',').map(c=>c.trim()).filter(Boolean)
+      : [];
+
+    // SCORE/CHANNELS 태그를 제거한 순수 콘텐츠 줄만 추출
+    const cleaned = text
+      .replace(/SCORE\s*:\s*\d+[,\s]*/gi, '')
+      .replace(/CHANNELS\s*:[^\n]*/gi, '');
+    const lines = cleaned.split('\n').map(l=>l.trim().replace(/^[\-\*•]\s*/,'').replace(/^\p{Emoji_Presentation}\s*/u,'')).filter(Boolean);
+
+    if (lines[0] === 'SILENT' || text.trim() === 'SILENT') {
+      if (statusEl) statusEl.remove();
+      renderAnalysisCard(groupEl, { score: null, channels: [], problem: t('quiet_env') || '조용한 환경이 감지되었습니다. 믹스를 틀고 다시 시도하세요.', solutions: [] });
+      return;
+    }
+    const contentLines = lines;
+    const result = { score, channels, problem: contentLines[0]||'분석 완료', solutions: contentLines.slice(1) };
+
+    // 히스토리 저장
+    const chTag = channels.length ? `[${channels.join(',')}] ` : '';
+    const hintTag = userHint ? `(힌트: ${userHint}) ` : state.analysisMode !== 'mix' ? `(${state.analysisMode}) ` : '';
+    const solTag = result.solutions.length ? result.solutions.slice(0,2).join(' / ') : '';
+    const historyEntry = `${chTag}${hintTag}${result.problem}${solTag ? ' → ' + solTag : ''}`;
+    state.issueHistory.push(historyEntry);
+    if (state.issueHistory.length > 3) state.issueHistory.shift();
+
+    if (statusEl) statusEl.remove();
+    renderAnalysisCard(groupEl, result);
+  } catch(err) {
+    if (statusEl) {
+      statusEl.innerHTML = `<span style="font-size:var(--md)">⚠️</span><span style="color:var(--danger);font-size:var(--sm);margin-left:8px">${err.message||t('err_general')}</span>`;
+      const dots = statusEl.querySelector('.thinking-dots');
+      if (dots) dots.remove();
+    }
+  }
+}
+
+function animateMixScore(el, target) {
+  const duration = 1200;
+  const start = performance.now();
+  function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
+  function step(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
+    el.textContent = Math.round(easeOutQuart(progress) * target);
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+function renderAnalysisCard(groupEl, result) {
+  if (!groupEl||!result) return;
+  const isCheer = !result.solutions||result.solutions.length===0;
+  const p = document.createElement('div');
+  p.className = 'card-problem'+(isCheer?' cheer':'');
+
+  const textSpan = document.createElement('span');
+  textSpan.className = 'card-problem-text';
+  textSpan.textContent = result.problem||'분석 완료';
+  p.appendChild(textSpan);
+
+  if (result.score != null) {
+    const scoreEl = document.createElement('span');
+    const scoreClass = result.score >= 85 ? 'score-good' : result.score >= 70 ? 'score-ok' : 'score-bad';
+    scoreEl.className = 'mix-score ' + scoreClass;
+    scoreEl.textContent = '0';
+    p.appendChild(scoreEl);
+    requestAnimationFrame(() => animateMixScore(scoreEl, result.score));
+  }
+
+  groupEl.appendChild(p);
+  if (Array.isArray(result.solutions)) {
+    result.solutions.forEach(sol => {
+      if (!sol) return;
+      const s = document.createElement('div');
+      s.className = 'card-solution';
+      s.innerHTML = '<span class="sol-icon">💡</span><span>'+sol+'</span>';
+      groupEl.appendChild(s);
+    });
+  }
+}
+
+function hideEmptyState() {
+  const el = document.getElementById('empty-state');
+  if (el) el.style.display = 'none';
+}
+
+function blobToBase64(blob) {
+  return new Promise((res,rej) => { const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(blob); });
+}
+
+// ── SETTINGS ──
+function renderSettings() {
+  Object.keys(MODEL_CONFIG).forEach(preset => {
+    const el = document.getElementById(`preset-${preset}`);
+    if (!el) return;
+    const active = state.modelPreset === preset;
+    el.classList.toggle('selected', active);
+    el.querySelector('.radio-dot-inner').style.display = active ? 'block' : 'none';
+  });
+
+  renderDeviceSelect();
+  renderApiMode();
+  renderSpaceEnv();
+  renderMixPref();
+  renderMemoPresets();
+}
+function selectSource(src) { state.source=src; renderSettings(); }
+function selectModelPreset(preset) { state.modelPreset = preset; saveToStorage(); renderSettings(); }
+function selectApiMode(useProxy) {
+  state.useProxy = useProxy;
+  saveToStorage();
+  renderApiMode();
+}
+function renderApiMode() {
+  const proxyEl  = document.getElementById('api-proxy');
+  const directEl = document.getElementById('api-direct');
+  const keyRow   = document.getElementById('api-key-row');
+  const keyInput = document.getElementById('api-key-input');
+  if (!proxyEl) return;
+  const useProxy = state.useProxy;
+  proxyEl.classList.toggle('selected', useProxy);
+  proxyEl.querySelector('.radio-dot-inner').style.display = useProxy ? 'block' : 'none';
+  directEl.classList.toggle('selected', !useProxy);
+  directEl.querySelector('.radio-dot-inner').style.display = !useProxy ? 'block' : 'none';
+  keyRow.style.display = useProxy ? 'none' : 'block';
+  if (keyInput && state.apiKey) keyInput.value = state.apiKey;
+}
+function closeModal() { document.getElementById('modal-overlay').classList.remove('show'); }
+function confirmPreset() {
+  const name=document.getElementById('modal-input').value.trim();
+  if(!name) return;
+  flushSpaceMemo();
+  state.spacePresets.push({ name, env: {...state.spaceEnv} });
+  localStorage.setItem('space_presets', JSON.stringify(state.spacePresets));
+  closeModal(); renderSpacePresets();
+}
+function saveSettings() {
+  saveToStorage(); alert(t('alert_saved'));
+}
+
+function exportSettings() {
+  flushSpaceMemo();
+  const data = {
+    source: state.source,
+    modelPreset: state.modelPreset,
+    apiKey: state.apiKey,
+    spaceEnv: state.spaceEnv,
+    spacePresets: state.spacePresets,
+    mixPref: state.mixPref,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'livemaxai-settings.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function importSettings(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+
+      if (data.source) state.source = data.source;
+      if (data.modelPreset && MODEL_CONFIG[data.modelPreset]) state.modelPreset = data.modelPreset;
+      if (data.apiKey) state.apiKey = data.apiKey;
+      if (data.spaceEnv) { state.spaceEnv = { ...state.spaceEnv, ...data.spaceEnv }; localStorage.setItem('space_env', JSON.stringify(state.spaceEnv)); }
+      if (Array.isArray(data.spacePresets)) { state.spacePresets = data.spacePresets; localStorage.setItem('space_presets', JSON.stringify(state.spacePresets)); }
+      if (data.mixPref) { state.mixPref = { ...state.mixPref, ...data.mixPref }; localStorage.setItem('mix_pref', JSON.stringify(state.mixPref)); }
+      saveToStorage();
+      renderSettings();
+      alert(t('alert_import_ok'));
+    } catch(err) {
+      alert(t('alert_import_err'));
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+document.getElementById('modal-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter') confirmPreset();
+  if(e.key==='Escape') closeModal();
+});
+
+// ── ACCORDION ──
+function toggleAcc(titleEl) {
+  const body = titleEl.nextElementSibling;
+  const willOpen = !body.classList.contains('open');
+  // 모든 섹션 닫기
+  document.querySelectorAll('.acc-body').forEach(b => {
+    b.classList.remove('open');
+    const arr = b.previousElementSibling?.querySelector('.acc-arrow');
+    if (arr) arr.textContent = '▶';
+  });
+  if (willOpen) {
+    body.classList.add('open');
+    titleEl.querySelector('.acc-arrow').textContent = '▼';
+  }
+}
+
+// ── SPACE ENV ──
+const DEFAULT_SPACE_PRESETS = [
+  { name:'소규모 교회 PA', env:{ venue:'소형실내', reverb:'많음', sub:'없음', delay:'없음', fb:'타이트', memo:'반사음 많은 실내. 명료도 최우선. 저역 누적 주의. 하이파이 기준 조언 금지.' } },
+  { name:'대형 공연장 PA', env:{ venue:'대형/야외', reverb:'보통', sub:'대형', delay:'풀커버', fb:'여유있게', memo:'딜레이 스피커 있음. 저역 에너지 강함. 피드백 민감 구간 주의.' } },
+];
+function initSpacePresets() {
+  if (!localStorage.getItem('space_presets')) {
+    state.spacePresets = DEFAULT_SPACE_PRESETS.map(p => ({...p, env:{...p.env}}));
+    localStorage.setItem('space_presets', JSON.stringify(state.spacePresets));
+  }
+}
+function flushSpaceMemo() {
+  const el = document.getElementById('space-memo');
+  if (el) state.spaceEnv.memo = el.value.trim();
+}
+function saveSpaceMemoLive() {
+  flushSpaceMemo();
+  localStorage.setItem('space_env', JSON.stringify(state.spaceEnv));
+}
+function setSpaceMode(mode, btn) {
+  state.spaceEnv.mode = mode;
+  const group = btn.closest('.seg-group');
+  group.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const liveFields = document.getElementById('space-live-fields');
+  if (liveFields) liveFields.style.display = mode === 'studio' ? 'none' : '';
+  localStorage.setItem('space_env', JSON.stringify(state.spaceEnv));
+}
+function setSpaceEnv(key, val, btn) {
+  state.spaceEnv[key] = val;
+  const group = btn.closest('.seg-group');
+  group.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  flushSpaceMemo();
+  localStorage.setItem('space_env', JSON.stringify(state.spaceEnv));
+}
+function renderSpaceEnv() {
+  const env = state.spaceEnv;
+  // 공간 유형
+  const modeGroup = document.getElementById('seg-space-mode');
+  if (modeGroup) {
+    const currentMode = env.mode || 'live';
+    modeGroup.querySelectorAll('.seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.val === currentMode);
+    });
+    const liveFields = document.getElementById('space-live-fields');
+    if (liveFields) liveFields.style.display = currentMode === 'studio' ? 'none' : '';
+  }
+  // 슬라이더들
+  const segMap = { venue:'seg-venue', reverb:'seg-reverb', sub:'seg-sub', delay:'seg-delay', fb:'seg-fb' };
+  Object.entries(segMap).forEach(([key, groupId]) => {
+    const g = document.getElementById(groupId);
+    if (!g) return;
+    g.querySelectorAll('.seg-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.val === env[key]));
+  });
+  const memoEl = document.getElementById('space-memo');
+  if (memoEl) memoEl.value = env.memo || '';
+  renderSpacePresets();
+}
+function renderSpacePresets() {
+  const sel = document.getElementById('space-preset-select');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">${t('space_preset_select')}</option>` +
+    state.spacePresets.map((p, i) => `<option value="${i}"${String(i)===cur?' selected':''}>${p.name}</option>`).join('');
+}
+function saveSpacePreset() {
+  flushSpaceMemo();
+  document.getElementById('modal-input').value = '';
+  document.getElementById('modal-overlay').classList.add('show');
+  document.getElementById('modal-input').focus();
+}
+function loadSpacePreset(i) {
+  if (i === '' || i === null || i === undefined) return;
+  state.spaceEnv = { ...state.spacePresets[Number(i)].env };
+  localStorage.setItem('space_env', JSON.stringify(state.spaceEnv));
+  renderSpaceEnv();
+}
+function deleteSpacePreset() {
+  const sel = document.getElementById('space-preset-select');
+  const i = Number(sel?.value);
+  if (sel?.value === '' || !state.spacePresets[i]) return;
+  if (!confirm(t('preset_delete_confirm').replace('{name}', state.spacePresets[i].name))) return;
+  state.spacePresets.splice(i, 1);
+  localStorage.setItem('space_presets', JSON.stringify(state.spacePresets));
+  renderSpacePresets();
+}
+
+// ── MIX PREF ──
+function setMixType(type, btn) {
+  state.mixPref.type = type;
+  const g = document.getElementById('seg-mix-type');
+  if (g) g.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  localStorage.setItem('mix_pref', JSON.stringify(state.mixPref));
+  renderMixPref();
+}
+function setMixPref(key, val, btn) {
+  state.mixPref[key] = val;
+  const group = btn.closest('.seg-group');
+  group.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  localStorage.setItem('mix_pref', JSON.stringify(state.mixPref));
+}
+function setVocalConfig(val, btn) {
+  state.mixPref.vocal = val;
+  const g = document.getElementById('seg-vocal-config');
+  if (g) g.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+  localStorage.setItem('mix_pref', JSON.stringify(state.mixPref));
+  const vf = document.getElementById('mix-vocal-fields');
+  if (vf) vf.style.display = val === 'none' ? 'none' : 'block';
+}
+function renderMixPref() {
+  const p = state.mixPref;
+  const typeGroup = document.getElementById('seg-mix-type');
+  if (typeGroup) {
+    typeGroup.querySelectorAll('.seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.val === p.type);
+    });
+  }
+  const musicFields = document.getElementById('mix-music-fields');
+  const speechFields = document.getElementById('mix-speech-fields');
+  const densityRow = document.getElementById('density-row');
+  const vocalConfigRow = document.getElementById('vocal-config-row');
+  const vocalFields = document.getElementById('mix-vocal-fields');
+  const showMusic = p.type === 'music';
+  if (densityRow) densityRow.style.display = 'flex';
+  if (musicFields) musicFields.style.display = showMusic ? 'block' : 'none';
+  if (speechFields) speechFields.style.display = p.type === 'speech' ? 'flex' : 'none';
+  if (vocalConfigRow) vocalConfigRow.style.display = showMusic ? 'flex' : 'none';
+  const vocal = p.vocal || 'yes';
+  if (vocalFields) vocalFields.style.display = (showMusic && vocal !== 'none') ? 'block' : 'none';
+  const vcg = document.getElementById('seg-vocal-config');
+  if (vcg) vcg.querySelectorAll('.seg-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.val === vocal));
+  const prefMap = {
+    density:'seg-density', vocalTone:'seg-vocal-tone', vocalWeight:'seg-vocal-weight',
+    lowFeel:'seg-low-feel', drumPunch:'seg-drum-punch', clarity:'seg-clarity',
+  };
+  Object.entries(prefMap).forEach(([key, groupId]) => {
+    const g = document.getElementById(groupId);
+    if (!g) return;
+    g.querySelectorAll('.seg-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.val === p[key]));
+  });
+}
+
+
+// ── BUILD CONTEXT FOR AI ──
+function buildAIContext() {
+  const env = state.spaceEnv;
+  const p = state.mixPref;
+  const parts = [];
+
+  // 공간 환경
+  if ((env.mode || 'live') === 'studio') {
+    parts.push('공간 환경: 공간크기=소형 실내, 반사음=적음, 서브우퍼=없음, 딜레이스피커=없음, 피드백여유=보통');
+  } else {
+    const envParts = [];
+    if (env.venue)  envParts.push(`공간크기=${env.venue}`);
+    if (env.reverb) envParts.push(`반사음=${env.reverb}`);
+    if (env.sub)    envParts.push(`서브우퍼=${env.sub}`);
+    if (env.delay)  envParts.push(`딜레이스피커=${env.delay}`);
+    if (env.fb)     envParts.push(`피드백여유=${env.fb}`);
+    if (envParts.length) parts.push('공간 환경: ' + envParts.join(', '));
+    if (env.memo)   parts.push('공간 메모: ' + env.memo);
+  }
+
+  // 믹스 취향 — prompts.js의 buildMixPrompt 호출
+  const mixPrompt = buildMixPrompt(p);
+  if (mixPrompt) parts.push(mixPrompt);
+
+  // 즉석 메모
+  const instantMemo = document.getElementById('instant-memo')?.value.trim();
+  if (instantMemo) parts.push('즉석 메모: ' + instantMemo);
+
+  return parts.join('\n');
+}
+
+// ── TUTORIAL ──
+function getTutorialSteps() {
+  const ua = navigator.userAgent;
+  const installKey = /android/i.test(ua) ? 'tut_7_android' : /iphone|ipad|ipod/i.test(ua) ? 'tut_7_ios' : 'tut_7_desktop';
+  return [
+    { target: null,                                        text: t('tut_0'), settings: false },
+    { target: '#mic-btn',                                  text: t('tut_1'), settings: false },
+    { targets: ['#user-hint-input','#analysis-mode-toggle'], text: t('tut_2'), settings: false },
+    { target: '#setting-section-device',                   text: t('tut_3'), settings: true, openSection: '#setting-section-device' },
+    { target: '#setting-section-api',                      text: t('tut_api'), settings: true, openSection: '#setting-section-api' },
+    { target: '#setting-section-space',                    text: t('tut_4'), settings: true, openSection: '#setting-section-space' },
+    { target: '#setting-section-mix',                      text: t('tut_5'), settings: true, openSection: '#setting-section-mix' },
+    { target: '#dry-wet-toggle',                           text: t('tut_6'), settings: false },
+    { target: null,                                        text: t(installKey), settings: false },
+    { target: null,                                        text: t('tut_8'), settings: false },
+  ];
+}
+
+
+let _tutStep = 0;
+
+function tutorialStart() {
+  if (localStorage.getItem('tutorial_done')) return;
+  _tutStep = 0;
+  _tutShow();
+}
+
+function tutorialStartForce() {
+  _tutStep = 0;
+  _tutShow();
+}
+
+function _tutShow() {
+  document.getElementById('tutorial-overlay').style.display = 'block';
+  _tutRender(_tutStep);
+}
+
+function _tutRender(idx) {
+  const steps = getTutorialSteps();
+  const step = steps[idx];
+  const isLast = idx === steps.length - 1;
+
+  // Settings panel
+  const overlay = document.getElementById('settings-overlay');
+  const settingsOpen = overlay.classList.contains('show');
+  if (step.settings && !settingsOpen) {
+    overlay.classList.add('show');
+    document.getElementById('settings-btn').classList.add('active');
+    renderSettings();
+  } else if (!step.settings && settingsOpen) {
+    overlay.classList.remove('show');
+    document.getElementById('settings-btn').classList.remove('active');
+  }
+
+  // Open accordion section
+  if (step.openSection) {
+    const sec = document.querySelector(step.openSection);
+    if (sec) {
+      document.querySelectorAll('.acc-body').forEach(b => {
+        b.classList.remove('open');
+        const a = b.previousElementSibling?.querySelector('.acc-arrow');
+        if (a) a.textContent = '▶';
+      });
+      const body = sec.querySelector('.acc-body');
+      const arrow = sec.querySelector('.acc-arrow');
+      if (body) body.classList.add('open');
+      if (arrow) arrow.textContent = '▼';
+      // Scroll instantly so position is stable before measurement
+      sec.scrollIntoView({ behavior: 'instant', block: 'start' });
+    }
+  }
+
+  document.getElementById('tutorial-text').innerHTML = step.text;
+  document.getElementById('tutorial-step-indicator').textContent = (idx + 1) + ' / ' + getTutorialSteps().length;
+  document.getElementById('tutorial-next-btn').textContent = isLast ? t('tut_start') : t('tut_next');
+  document.getElementById('tutorial-skip-btn').textContent = t('tut_skip');
+  document.getElementById('tutorial-skip-btn').style.display = isLast ? 'none' : 'inline-block';
+
+  // Wait for accordion CSS transition (350ms) to finish before measuring rect
+  setTimeout(() => _tutPosition(step), step.openSection ? 420 : 50);
+}
+
+function _tutPosition(step) {
+  const hlBox = document.getElementById('tutorial-highlight-box');
+  const bubble = document.getElementById('tutorial-bubble');
+
+  let els = [];
+  if (step.targets) {
+    els = step.targets.map(s => document.querySelector(s)).filter(Boolean);
+  } else if (step.target) {
+    const el = document.querySelector(step.target);
+    if (el) els = [el];
+  }
+
+  if (els.length === 0) {
+    hlBox.style.display = 'none';
+    bubble.removeAttribute('data-arrow');
+    bubble.style.cssText = 'left:50%;top:50%;transform:translate(-50%,-50%);';
+    return;
+  }
+
+  const PAD = 10;
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  els.forEach(el => {
+    const r = el.getBoundingClientRect();
+    x1 = Math.min(x1, r.left);
+    y1 = Math.min(y1, r.top);
+    x2 = Math.max(x2, r.right);
+    y2 = Math.max(y2, r.bottom);
+  });
+
+  const vpW = window.innerWidth;
+  const vpH = window.innerHeight;
+
+  // Clamp element rect to viewport
+  const cy1 = Math.max(0, y1);
+  const cy2 = Math.min(vpH, y2);
+  const cx1 = Math.max(0, x1);
+  const cx2 = Math.min(vpW, x2);
+
+  hlBox.style.display = 'block';
+  hlBox.style.left   = (cx1 - PAD) + 'px';
+  hlBox.style.top    = (cy1 - PAD) + 'px';
+  hlBox.style.width  = (cx2 - cx1 + PAD * 2) + 'px';
+  hlBox.style.height = (cy2 - cy1 + PAD * 2) + 'px';
+
+  const GAP = 12;
+  const BW  = Math.min(360, vpW * 0.88);
+  let bl = (cx1 + cx2) / 2 - BW / 2;
+  bl = Math.max(10, Math.min(vpW - BW - 10, bl));
+
+  const spaceBelow = vpH - cy2 - PAD;
+  const spaceAbove = cy1 - PAD;
+  const sectionH   = cy2 - cy1;
+
+  // Tall section (>38% of viewport) or no room below → pin bubble at bottom
+  if (sectionH > vpH * 0.38 || spaceBelow < 110) {
+    bubble.style.transform = '';
+    bubble.style.maxWidth  = BW + 'px';
+    bubble.style.left      = bl + 'px';
+    bubble.style.bottom    = '18px';
+    bubble.style.top       = '';
+    bubble.removeAttribute('data-arrow');
+    return;
+  }
+
+  let arrowDir, bt, bb;
+  if (spaceBelow >= 110 || spaceBelow >= spaceAbove) {
+    arrowDir = 'top';
+    bt = cy2 + PAD + GAP;
+    bb = '';
+  } else {
+    arrowDir = 'bottom';
+    bt = '';
+    bb = vpH - (cy1 - PAD - GAP);
+  }
+
+  let ax = (cx1 + cx2) / 2 - bl;
+  ax = Math.max(20, Math.min(BW - 20, ax));
+
+  bubble.style.transform = '';
+  bubble.style.maxWidth  = BW + 'px';
+  bubble.style.left      = bl + 'px';
+  bubble.style.top       = bt !== '' ? bt + 'px' : '';
+  bubble.style.bottom    = bb !== '' ? bb + 'px' : '';
+  bubble.setAttribute('data-arrow', arrowDir);
+  bubble.style.setProperty('--arrow-x', ax + 'px');
+}
+
+function tutorialNext() {
+  if (_tutStep >= getTutorialSteps().length - 1) { _tutDone(); return; }
+  _tutStep++;
+  _tutRender(_tutStep);
+}
+
+function tutorialSkip() { _tutDone(); }
+
+function _tutDone() {
+  localStorage.setItem('tutorial_done', '1');
+  document.getElementById('tutorial-overlay').style.display = 'none';
+  const settingsOverlay = document.getElementById('settings-overlay');
+  if (settingsOverlay.classList.contains('show')) {
+    settingsOverlay.classList.remove('show');
+    document.getElementById('settings-btn').classList.remove('active');
+  }
+}
+
+// ── INIT ──
+// localStorage 초기화 감지: 이전 세션에서 저장된 데이터가 없는 경우 자동 불러오기 배너 표시
+(function detectStorageLoss() {
+  const hadPrevSession = sessionStorage.getItem('livemaxai_session_active');
+  if (hadPrevSession) return; // 같은 세션 내 새로고침은 무시
+  sessionStorage.setItem('livemaxai_session_active', '1');
+  // 이미 localStorage에 데이터가 있으면 정상 — 배너 불필요
+  if (localStorage.getItem('livemaxai')) return;
+  // 세션 플래그도 없고 localStorage도 없는 경우: 첫 실행 OR 저장 손실
+  // tutorial_done이 없으면 첫 실행이므로 배너 스킵
+  // tutorial_done도 없다면 첫 실행 → 아무것도 안 함
+  // tutorial_done이 없으면 첫 실행이므로 배너 없이 패스
+})();
+
+loadSettings();
+requestStoragePersist();
+
+// 저장 손실 감지: loadSettings 후 API 키가 없고 tutorial_done 마커도 없는 경우 = 첫 실행
+// tutorial_done은 있는데 API 키가 없으면 = localStorage 초기화됨
+(function checkRestorable() {
+  if (localStorage.getItem('tutorial_done') && !state.apiKey) {
+    setTimeout(() => {
+      const banner = document.createElement('div');
+      banner.id = 'storage-loss-banner';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#c0392b;color:#fff;padding:10px 16px;font-size:13px;display:flex;align-items:center;gap:10px;font-family:var(--font-mono)';
+      banner.innerHTML = `
+        <span style="flex:1">⚠️ 앱 설정이 초기화되었습니다. 백업 파일이 있다면 불러오기를 눌러주세요.</span>
+        <button onclick="document.getElementById('import-file').click();this.closest('#storage-loss-banner').remove()"
+          style="background:#fff;color:#c0392b;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;font-weight:bold;white-space:nowrap">📥 설정 불러오기</button>
+        <button onclick="this.closest('#storage-loss-banner').remove()"
+          style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.5);border-radius:6px;padding:5px 10px;cursor:pointer">✕</button>
+      `;
+      document.body.appendChild(banner);
+    }, 500);
+  }
+})();
+
+initSpacePresets();
+applyLang();
+updateSourceUI();
+updateDryWetUI();
+updateAnalysisModeUI();
+// 고정 메모 초기 로드
+(function() {
+  if (state.pinnedMemoIdx >= 0 && state.memoPresets[state.pinnedMemoIdx]) {
+    const el = document.getElementById('instant-memo');
+    if (el) el.value = state.memoPresets[state.pinnedMemoIdx].text;
+  }
+})();
+drawMeter();
+setComp(0.4);
+(async()=>{ await initAudio(state.deviceId); })();
+
+// 첫 실행 튜토리얼 (DOM 완전 렌더 후)
+setTimeout(tutorialStart, 300);
+
+
+// ── HINT INPUT IME 패치 (한글 중복 입력 방지) ──
+const hintEl = document.getElementById('user-hint-input');
+if (hintEl) {
+  let _hintComposing = false;
+  hintEl.addEventListener('compositionstart', () => _hintComposing = true);
+  hintEl.addEventListener('compositionend', () => _hintComposing = false);
+  hintEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !_hintComposing) { hintEl.blur(); handleMic(); }
+  });
+}
+
+const micBtnEl = document.getElementById('mic-btn');
+micBtnEl.addEventListener('touchend', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  handleMic();
+}, { passive: false });
+
+// iOS AudioContext: 첫 터치 시 resume
+document.addEventListener('touchstart', async () => {
+  if (state.audioCtx?.state === 'suspended') {
+    await state.audioCtx.resume();
+  }
+}, { once: true });
+
+// Controls panel collapse (mobile portrait + mobile landscape)
+const _ctrlMQ = window.matchMedia('(max-width: 1023px) and (orientation: portrait)');
+const _ctrlMQLand = window.matchMedia('(max-width: 767px) and (orientation: landscape)');
+
+function _isControlsMobile() {
+  return _ctrlMQ.matches || _ctrlMQLand.matches;
+}
+
+function toggleControlsPanel() {
+  const el = document.getElementById('controls-collapsible');
+  const label = document.getElementById('controls-toggle-label');
+  if (!el) return;
+
+  if (el.classList.contains('is-collapsed')) {
+    // Expand
+    el.style.height = el.scrollHeight + 'px';
+    el.classList.remove('is-collapsed');
+    label.textContent = 'CONTROLS ▼';
+    localStorage.setItem('controlsPanelOpen', '1');
+    el.addEventListener('transitionend', function onEnd() {
+      el.style.height = 'auto';
+      el.removeEventListener('transitionend', onEnd);
+    });
+  } else {
+    // Collapse: fix height first, then animate to 0
+    el.style.height = el.scrollHeight + 'px';
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        el.style.height = '0px';
+        el.classList.add('is-collapsed');
+        label.textContent = 'CONTROLS ▲';
+        localStorage.setItem('controlsPanelOpen', '0');
+      });
+    });
+  }
+}
+
+function initControlsPanel() {
+  const el = document.getElementById('controls-collapsible');
+  const label = document.getElementById('controls-toggle-label');
+  if (!el || !label) return;
+
+  if (!_isControlsMobile()) {
+    // 데스크톱/가로: 항상 펼침, transition 제거
+    el.style.height = '';
+    el.style.transition = '';
+    el.classList.remove('is-collapsed');
+    return;
+  }
+
+  const saved = localStorage.getItem('controlsPanelOpen');
+  if (saved === '1') {
+    el.style.height = 'auto';
+    el.classList.remove('is-collapsed');
+    label.textContent = 'CONTROLS ▼';
+  } else {
+    // 기본: 접힌 상태
+    el.style.height = '0px';
+    el.classList.add('is-collapsed');
+    label.textContent = 'CONTROLS ▲';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', initControlsPanel);
+_ctrlMQ.addEventListener('change', initControlsPanel);
+_ctrlMQLand.addEventListener('change', initControlsPanel);
+</script>
+
+<script>
+// ── FULLSCREEN EXPAND (모바일/태블릿 ≤ 1024px) ──
+(function initFS() {
+  const FS_MQ = window.matchMedia('(max-width: 1024px)');
+
+  function isFSEnabled() { return FS_MQ.matches; }
+
+  function openFS(paneId) {
+    if (!isFSEnabled()) return;
+    document.getElementById(paneId).classList.add('fs-open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  // advice-notice 닫기 (한 번 닫으면 복구 불가)
+  window.toggleAdviceNotice = function() {
+    const notice = document.getElementById('advice-notice');
+    if (!notice) return;
+    notice.style.display = 'none';
+  };
+
+  window.closeFS = function(e) {
+    if (e) e.stopPropagation();
+    const gp = document.getElementById('graph-pane');
+    const ap = document.getElementById('advice-pane');
+    if (gp) gp.classList.remove('fs-open');
+    if (ap) ap.classList.remove('fs-open');
+    document.body.style.overflow = '';
+  };
+
+  // 캔버스 탭 → 그래프 풀스크린 토글
+  const canvasTapWrap = document.getElementById('canvas-tap-wrap');
+  if (canvasTapWrap) {
+    canvasTapWrap.addEventListener('click', function(e) {
+      if (!isFSEnabled()) return;
+      const gp = document.getElementById('graph-pane');
+      if (gp.classList.contains('fs-open')) {
+        closeFS(e);
+      } else {
+        openFS('graph-pane');
+      }
+    });
+  }
+
+  // 조언 헤더 탭 → 조언창 풀스크린 토글
+  const adviceHeader = document.getElementById('advice-header');
+  if (adviceHeader) {
+    adviceHeader.addEventListener('click', function(e) {
+      if (!isFSEnabled()) return;
+      const ap = document.getElementById('advice-pane');
+      if (ap.classList.contains('fs-open')) {
+        closeFS(e);
+      } else {
+        openFS('advice-pane');
+      }
+    });
+  }
+
+  // 조언 카드 영역 탭 → 조언창 풀스크린 열기 / 더블탭 → 닫기 (스크롤과 구분)
+  const cardsScroll = document.getElementById('cards-scroll');
+  if (cardsScroll) {
+    let _tsX = 0, _tsY = 0, _tsMoved = false;
+    let _lastTapTime = 0;
+
+    cardsScroll.addEventListener('touchstart', function(e) {
+      _tsX = e.touches[0].clientX;
+      _tsY = e.touches[0].clientY;
+      _tsMoved = false;
+    }, { passive: true });
+
+    cardsScroll.addEventListener('touchmove', function(e) {
+      if (Math.abs(e.touches[0].clientX - _tsX) > 8 ||
+          Math.abs(e.touches[0].clientY - _tsY) > 8) {
+        _tsMoved = true;
+      }
+    }, { passive: true });
+
+    cardsScroll.addEventListener('touchend', function(e) {
+      if (!isFSEnabled() || _tsMoved) return;
+      const ap = document.getElementById('advice-pane');
+      const now = Date.now();
+      if (ap.classList.contains('fs-open')) {
+        // 풀스크린 열린 상태: 더블탭(300ms 이내) 시 닫기
+        if (now - _lastTapTime < 300) {
+          closeFS(e);
+          _lastTapTime = 0;
+        } else {
+          _lastTapTime = now;
+        }
+      } else {
+        openFS('advice-pane');
+        _lastTapTime = 0;
+      }
+    });
+  }
+
+  // 화면 넓어지면 풀스크린 자동 해제
+  FS_MQ.addEventListener('change', function(ev) {
+    if (!ev.matches) closeFS();
+  });
+})();
+</script>
+
+<script>
+const APP_VERSION = 'v4';
+// Windows PWA / Chrome 등에서 스토리지 영구 보존 요청
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist();
+}
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/app/sw.js')
+      .then(reg => {
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateBackupPrompt();
+            }
+          });
+        });
+      })
+      .catch(e => console.log('[MaxAI] SW:', e));
+  });
+}
+function showUpdateBackupPrompt() {
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);width:min(90vw,360px);background:var(--surface2);border:1px solid var(--accent);border-radius:12px;padding:14px 16px;z-index:9999;display:flex;flex-direction:column;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5)';
+  banner.innerHTML = `
+    <div style="font-family:var(--font-mono);font-size:var(--sm);color:var(--accent)">🔄 새 버전이 준비됐어요</div>
+    <div style="font-family:var(--font-mono);font-size:var(--xs);color:var(--muted2)">업데이트 전에 설정을 백업해두면 안전해요.</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="exportSettings();document.getElementById('update-banner').remove()" style="flex:1;background:var(--accent);color:#000;border:none;border-radius:8px;padding:8px;font-family:var(--font-mono);font-size:var(--xs);cursor:pointer">📤 백업 후 업데이트</button>
+      <button onclick="location.reload()" style="flex:1;background:var(--surface2);color:var(--muted2);border:1px solid var(--border);border-radius:8px;padding:8px;font-family:var(--font-mono);font-size:var(--xs);cursor:pointer">그냥 업데이트</button>
+    </div>
+  `;
+  document.body.appendChild(banner);
+}
+</script>
+</body>
+</html>

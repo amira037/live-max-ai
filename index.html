@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LIVE MAX AI — AI Mix Advisor for Live PA Engineers</title>
+<meta name="description" content="Real-time AI mix analysis for live PA engineers. Cross-check your ears in seconds.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+
+:root {
+  --bg:       #080a0e;
+  --surface:  #0f1218;
+  --surface2: #161b24;
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.13);
+  --text:     #e2e8f0;
+  --muted:    #4a5568;
+  --muted2:   #718096;
+  --accent:   #00ff88;
+  --accent-d: #00cc6a;
+  --blue:     #4da6ff;
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-body:    'Inter', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* ── NOISE TEXTURE OVERLAY ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+}
+
+/* ── NAV ── */
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 40px;
+  background: rgba(8,10,14,0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-logo {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.06em;
+}
+.nav-logo span { color: var(--accent); }
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  list-style: none;
+}
+.nav-links a {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--muted2);
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--accent); }
+.nav-cta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bg) !important;
+  background: var(--accent);
+  padding: 8px 20px;
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.1s;
+}
+.nav-cta:hover { background: var(--accent-d) !important; color: var(--bg) !important; }
+
+/* ── HERO ── */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 120px 24px 80px;
+  overflow: hidden;
+}
+
+/* Grid background */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,255,136,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,255,136,0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 100%);
+  pointer-events: none;
+}
+
+/* Glow blob */
+.hero-glow {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,255,136,0.08) 0%, transparent 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: pulse-glow 4s ease-in-out infinite;
+}
+@keyframes pulse-glow {
+  0%,100% { transform: translate(-50%,-50%) scale(1); opacity: 1; }
+  50% { transform: translate(-50%,-50%) scale(1.15); opacity: 0.7; }
+}
+
+.hero-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 24px;
+  opacity: 0;
+  animation: fade-up 0.8s 0.2s ease forwards;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(72px, 12vw, 160px);
+  line-height: 0.9;
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+  opacity: 0;
+  animation: fade-up 0.8s 0.4s ease forwards;
+}
+.hero-title .accent { color: var(--accent); }
+.hero-title .dim { color: var(--muted2); }
+
+.hero-sub {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 52px);
+  letter-spacing: 0.08em;
+  color: var(--muted2);
+  margin-bottom: 32px;
+  opacity: 0;
+  animation: fade-up 0.8s 0.55s ease forwards;
+}
+
+.hero-desc {
+  font-size: 16px;
+  color: var(--muted2);
+  max-width: 480px;
+  line-height: 1.7;
+  margin-bottom: 48px;
+  font-weight: 300;
+  opacity: 0;
+  animation: fade-up 0.8s 0.7s ease forwards;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  opacity: 0;
+  animation: fade-up 0.8s 0.85s ease forwards;
+}
+
+.btn-primary {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--accent);
+  color: var(--bg);
+  padding: 14px 36px;
+  border-radius: 4px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 0 32px rgba(0,255,136,0.2);
+}
+.btn-primary:hover {
+  background: var(--accent-d);
+  transform: translateY(-1px);
+  box-shadow: 0 0 48px rgba(0,255,136,0.35);
+}
+
+.btn-secondary {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted2);
+  text-decoration: none;
+  padding: 14px 24px;
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  transition: color 0.2s, border-color 0.2s;
+}
+.btn-secondary:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
+
+/* Spectrum viz */
+.hero-visual {
+  margin-top: 72px;
+  width: 100%;
+  max-width: 680px;
+  opacity: 0;
+  animation: fade-up 1s 1.1s ease forwards;
+  position: relative;
+}
+.spectrum-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 20px 24px 16px;
+  position: relative;
+  overflow: hidden;
+}
+.spectrum-wrap::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.5;
+}
+.spectrum-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+}
+.spectrum-label .live-dot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+.live-dot-circle {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: blink 1.5s infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 80px;
+}
+.bar {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  animation: bar-anim var(--d, 1.2s) ease-in-out infinite alternate;
+  transform-origin: bottom;
+}
+@keyframes bar-anim {
+  from { height: var(--h-min, 20%); }
+  to   { height: var(--h-max, 80%); }
+}
+
+.advice-bubble {
+  margin-top: 12px;
+  background: rgba(0,255,136,0.06);
+  border: 1px solid rgba(0,255,136,0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  text-align: left;
+  animation: typing-reveal 0.8s 2s ease forwards;
+  opacity: 0;
+}
+@keyframes typing-reveal {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── FEATURES ── */
+.features {
+  padding: 120px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: clamp(36px, 5vw, 64px);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  margin-bottom: 64px;
+}
+.section-title .dim { color: var(--muted2); }
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2px;
+}
+
+.feature-card {
+  background: var(--surface);
+  padding: 36px 32px;
+  position: relative;
+  overflow: hidden;
+  transition: background 0.3s;
+}
+.feature-card:hover { background: var(--surface2); }
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 2px;
+  height: 0;
+  background: var(--accent);
+  transition: height 0.4s ease;
+}
+.feature-card:hover::before { height: 100%; }
+
+.feature-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+.feature-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+  line-height: 1.1;
+}
+.feature-desc {
+  font-size: 14px;
+  color: var(--muted2);
+  line-height: 1.7;
+  font-weight: 300;
+}
+
+/* ── HOW IT WORKS ── */
+.how {
+  padding: 100px 40px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.how-inner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0;
+  margin-top: 64px;
+  position: relative;
+}
+.steps::before {
+  content: '';
+  position: absolute;
+  top: 24px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border2), var(--accent), var(--border2), transparent);
+}
+.step {
+  text-align: center;
+  padding: 0 24px;
+  position: relative;
+}
+.step-num {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+  position: relative;
+  z-index: 1;
+}
+.step-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+.step-desc {
+  font-size: 13px;
+  color: var(--muted2);
+  line-height: 1.65;
+  font-weight: 300;
+}
+
+/* ── ADVICE DEMO ── */
+.score-section {
+  padding: 120px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: center;
+}
+.score-visual {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+}
+.adv-header {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.adv-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px 10px;
+}
+.adv-badge {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--blue);
+  border: 1px solid rgba(77,166,255,0.35);
+  background: rgba(77,166,255,0.08);
+  padding: 4px 10px;
+  border-radius: 99px;
+}
+.adv-time {
+  font-size: 12px;
+  color: var(--muted2);
+  letter-spacing: 0.08em;
+}
+.adv-summary {
+  margin: 0 16px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.adv-summary-text {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.5;
+}
+.adv-score {
+  font-family: var(--font-display);
+  font-size: 36px;
+  color: #ff9500;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  line-height: 1;
+  padding-top: 2px;
+}
+.adv-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+.adv-card {
+  background: rgba(0,255,136,0.05);
+  border: 1px solid rgba(0,255,136,0.18);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.adv-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.adv-text {
+  font-size: 12px;
+  color: var(--accent);
+  line-height: 1.65;
+  letter-spacing: 0.02em;
+}
+
+/* ── B2B ── */
+.b2b {
+  padding: 100px 40px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.b2b-inner { max-width: 640px; margin: 0 auto; }
+.b2b-title {
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 80px);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  margin-bottom: 24px;
+}
+.b2b-title .accent { color: var(--accent); }
+.b2b-desc {
+  font-size: 15px;
+  color: var(--muted2);
+  line-height: 1.8;
+  margin-bottom: 40px;
+  font-weight: 300;
+}
+.b2b-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 48px;
+}
+.b2b-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted2);
+  border: 1px solid var(--border2);
+  padding: 6px 14px;
+  border-radius: 4px;
+}
+.b2b-email {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid rgba(0,255,136,0.3);
+  padding-bottom: 2px;
+  transition: border-color 0.2s;
+}
+.b2b-email:hover { border-color: var(--accent); }
+
+/* ── FREQ LABELS ── */
+.freq-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+/* ── CONTROLS PANEL ── */
+.ctrl-panel {
+  background: var(--surface2);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.ctrl-label {
+  width: 40px;
+  color: var(--muted2);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.ctrl-val {
+  color: var(--muted2);
+  font-size: 11px;
+  width: 44px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.ctrl-val.accent { color: var(--accent); }
+
+/* toggle */
+.toggle-wrap { flex-shrink: 0; }
+.toggle {
+  width: 36px; height: 20px;
+  border-radius: 99px;
+  background: var(--muted);
+  position: relative;
+  cursor: default;
+}
+.toggle.on { background: var(--accent); }
+.toggle-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  position: absolute;
+  top: 3px; left: 3px;
+  transition: left 0.2s;
+}
+.toggle.on .toggle-thumb { left: 19px; }
+
+/* seg group */
+.seg-group {
+  display: flex;
+  border: 1px solid var(--border2);
+  border-radius: 99px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.seg {
+  padding: 3px 10px;
+  font-size: 10px;
+  color: var(--muted2);
+  cursor: default;
+}
+.seg.active {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* slider */
+.slider-track {
+  flex: 1;
+  height: 4px;
+  background: var(--border2);
+  border-radius: 2px;
+  position: relative;
+}
+.slider-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  position: relative;
+}
+.slider-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  position: absolute;
+  right: -7px;
+  top: -5px;
+}
+.rst-btn {
+  font-size: 10px;
+  color: var(--muted2);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: default;
+  flex-shrink: 0;
+  letter-spacing: 0.06em;
+}
+
+/* ── FOOTER ── */
+footer {
+  padding: 32px 40px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.footer-logo {
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: 0.06em;
+}
+.footer-logo span { color: var(--accent); }
+.footer-copy {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+
+/* ── ANIMATIONS ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  nav { padding: 16px 20px; }
+  .nav-links { display: none; }
+  .features { padding: 80px 20px; }
+  .how { padding: 80px 20px; }
+  .score-section { grid-template-columns: 1fr; gap: 40px; padding: 80px 20px; }
+  .b2b { padding: 80px 20px; }
+  footer { padding: 24px 20px; }
+  .steps::before { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">LIVE MAX <span>AI</span></div>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#b2b">For Business</a></li>
+    <li><a href="/app" class="nav-cta">Launch App</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-glow"></div>
+
+  <p class="hero-eyebrow">Real-time AI mix analysis</p>
+  <h1 class="hero-title">LIVE<br><span class="accent">MAX</span> <span class="dim">AI</span></h1>
+  <p class="hero-sub">Cross-check your ears.</p>
+  <p class="hero-desc">
+    Capture 5 seconds of your mix. Get instant, actionable feedback from an AI trained on live PA engineering principles.
+  </p>
+  <div class="hero-actions">
+    <a href="/app" class="btn-primary">Launch App</a>
+    <a href="#how" class="btn-secondary">See how it works</a>
+  </div>
+  <p class="hero-apikey">
+    Use your own API key &nbsp;·&nbsp; or try for free &nbsp;·&nbsp;
+    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key at Google AI Studio →</a>
+  </p>
+
+  <div class="hero-visual">
+    <div class="spectrum-wrap">
+      <div class="spectrum-label">
+        <span>Spectrum Analyzer</span>
+        <span class="live-dot"><span class="live-dot-circle"></span> Analyzing</span>
+      </div>
+      <!-- freq labels -->
+      <div class="freq-labels">
+        <span>20</span><span>50</span><span>100</span><span>200</span>
+        <span>500</span><span>1k</span><span>2k</span><span>5k</span>
+        <span>10k</span><span>20k</span>
+      </div>
+      <div class="bars" id="bars">
+        <div class="bar" style="--h-min:12%;--h-max:28%;--d:0.7s;background:#00ff88;animation-delay:0.1s"></div>
+        <div class="bar" style="--h-min:18%;--h-max:38%;--d:0.9s;background:#00ff88;animation-delay:0.2s"></div>
+        <div class="bar" style="--h-min:22%;--h-max:45%;--d:0.8s;background:#00ff88;animation-delay:0.0s"></div>
+        <div class="bar" style="--h-min:30%;--h-max:55%;--d:1.1s;background:#7dcc44;animation-delay:0.3s"></div>
+        <div class="bar" style="--h-min:28%;--h-max:52%;--d:0.75s;background:#7dcc44;animation-delay:0.1s"></div>
+        <div class="bar" style="--h-min:35%;--h-max:62%;--d:0.95s;background:#7dcc44;animation-delay:0.25s"></div>
+        <div class="bar" style="--h-min:40%;--h-max:70%;--d:1.0s;background:#ff9500;animation-delay:0.15s"></div>
+        <div class="bar" style="--h-min:50%;--h-max:80%;--d:0.85s;background:#ff9500;animation-delay:0.35s"></div>
+        <div class="bar" style="--h-min:55%;--h-max:85%;--d:1.2s;background:#ff4444;animation-delay:0.05s"></div>
+        <div class="bar" style="--h-min:60%;--h-max:90%;--d:0.7s;background:#ff4444;animation-delay:0.2s"></div>
+        <div class="bar" style="--h-min:58%;--h-max:88%;--d:0.9s;background:#ff4444;animation-delay:0.0s"></div>
+        <div class="bar" style="--h-min:52%;--h-max:82%;--d:1.0s;background:#ff4444;animation-delay:0.3s"></div>
+        <div class="bar" style="--h-min:45%;--h-max:75%;--d:0.8s;background:#ff9500;animation-delay:0.1s"></div>
+        <div class="bar" style="--h-min:42%;--h-max:72%;--d:1.1s;background:#ff9500;animation-delay:0.4s"></div>
+        <div class="bar" style="--h-min:38%;--h-max:65%;--d:0.75s;background:#7dcc44;animation-delay:0.2s"></div>
+        <div class="bar" style="--h-min:32%;--h-max:58%;--d:0.95s;background:#7dcc44;animation-delay:0.05s"></div>
+        <div class="bar" style="--h-min:28%;--h-max:50%;--d:1.0s;background:#00ff88;animation-delay:0.3s"></div>
+        <div class="bar" style="--h-min:25%;--h-max:46%;--d:0.85s;background:#00ff88;animation-delay:0.15s"></div>
+        <div class="bar" style="--h-min:20%;--h-max:40%;--d:1.2s;background:#00ff88;animation-delay:0.0s"></div>
+        <div class="bar" style="--h-min:18%;--h-max:36%;--d:0.7s;background:#00ff88;animation-delay:0.25s"></div>
+        <div class="bar" style="--h-min:22%;--h-max:42%;--d:0.9s;background:#00ff88;animation-delay:0.1s"></div>
+        <div class="bar" style="--h-min:15%;--h-max:32%;--d:0.8s;background:#00ff88;animation-delay:0.35s"></div>
+        <div class="bar" style="--h-min:14%;--h-max:30%;--d:1.1s;background:#00ff88;animation-delay:0.05s"></div>
+        <div class="bar" style="--h-min:18%;--h-max:35%;--d:0.75s;background:#00ff88;animation-delay:0.2s"></div>
+        <div class="bar" style="--h-min:12%;--h-max:28%;--d:0.95s;background:#00ff88;animation-delay:0.0s"></div>
+        <div class="bar" style="--h-min:10%;--h-max:24%;--d:1.0s;background:#00ff88;animation-delay:0.3s"></div>
+        <div class="bar" style="--h-min:14%;--h-max:30%;--d:0.85s;background:#00ff88;animation-delay:0.1s"></div>
+        <div class="bar" style="--h-min:10%;--h-max:22%;--d:1.2s;background:#00ff88;animation-delay:0.4s"></div>
+        <div class="bar" style="--h-min:8%;--h-max:20%;--d:0.7s;background:#00ff88;animation-delay:0.15s"></div>
+        <div class="bar" style="--h-min:10%;--h-max:24%;--d:0.9s;background:#00ff88;animation-delay:0.05s"></div>
+        <div class="bar" style="--h-min:8%;--h-max:18%;--d:0.8s;background:#00ff88;animation-delay:0.25s"></div>
+        <div class="bar" style="--h-min:6%;--h-max:16%;--d:1.1s;background:#00ff88;animation-delay:0.1s"></div>
+      </div>
+
+      <!-- Controls panel — like the real app -->
+      <div class="ctrl-panel">
+        <!-- AUTO row -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">AUTO</span>
+          <span class="ctrl-val accent">+3.5 dB</span>
+          <div class="toggle-wrap">
+            <div class="toggle on"><div class="toggle-thumb"></div></div>
+          </div>
+          <div class="seg-group">
+            <span class="seg">PHONE</span>
+            <span class="seg active">LINE</span>
+          </div>
+        </div>
+        <!-- GAIN -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">GAIN</span>
+          <div class="slider-track"><div class="slider-fill" style="width:48%"><div class="slider-thumb"></div></div></div>
+          <span class="ctrl-val">0 dB</span>
+          <span class="rst-btn">RST</span>
+        </div>
+        <!-- COMP -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">COMP</span>
+          <div class="slider-track"><div class="slider-fill" style="width:52%"><div class="slider-thumb"></div></div></div>
+          <span class="ctrl-val"></span>
+          <span class="rst-btn">RST</span>
+        </div>
+        <!-- LSF -->
+        <div class="ctrl-row">
+          <span class="ctrl-label">LSF</span>
+          <div class="slider-track"><div class="slider-fill" style="width:5%"><div class="slider-thumb"></div></div></div>
+          <span class="ctrl-val"></span>
+          <span class="rst-btn">RST</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <p class="section-label reveal">Why it works</p>
+  <h2 class="section-title reveal">Built for<br><span class="dim">the stage.</span></h2>
+  <div class="features-grid">
+    <div class="feature-card reveal">
+      <div class="feature-num">01</div>
+      <div class="feature-title">5-Second Analysis</div>
+      <div class="feature-desc">Tap once. The app captures a short audio clip and sends it to AI for real-time analysis. No setup, no waiting.</div>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-num">02</div>
+      <div class="feature-title">Precise EQ Advice</div>
+      <div class="feature-desc">Exact frequencies, Q values, and dB amounts — not generic tips. Advice you can act on immediately at the console.</div>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-num">03</div>
+      <div class="feature-title">Mix Scoring</div>
+      <div class="feature-desc">Sweetness, Fullness, Balance, Clarity — scored out of 100. Objective feedback even when your ears are fatigued.</div>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-num">04</div>
+      <div class="feature-title">Feedback Detection</div>
+      <div class="feature-desc">Detects howling and feedback frequencies instantly. Flags offending bands before they blow up the room.</div>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-num">05</div>
+      <div class="feature-title">PWA — No Install</div>
+      <div class="feature-desc">Runs on any Android or iOS device straight from the browser. Add to home screen and it works like a native app.</div>
+    </div>
+    <div class="feature-card reveal">
+      <div class="feature-num">06</div>
+      <div class="feature-title">Mix Preferences</div>
+      <div class="feature-desc">Dial in your sound density, vocal character, low-end feel. The AI advises within your aesthetic, not against it.</div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how" id="how">
+  <div class="how-inner">
+    <p class="section-label reveal">Workflow</p>
+    <h2 class="section-title reveal">Three steps.<br><span class="dim">That's it.</span></h2>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-num">01</div>
+        <div class="step-title">Capture</div>
+        <div class="step-desc">Hold your phone near the PA or stage mix. Tap to record 5 seconds of audio.</div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">02</div>
+        <div class="step-title">Analyze</div>
+        <div class="step-desc">AI processes the clip against your venue and mix preference settings.</div>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">03</div>
+        <div class="step-title">Act</div>
+        <div class="step-desc">Get precise EQ points, group fader moves, and compression settings. Apply. Done.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ADVICE DEMO -->
+<section class="score-section">
+  <div class="score-visual reveal">
+    <div class="adv-header">Advice</div>
+    <div class="adv-badge-row">
+      <span class="adv-badge">MAX AI</span>
+      <span class="adv-time">00:15</span>
+    </div>
+    <div class="adv-summary">
+      <span class="adv-summary-text">The mix has a cohesive, warm atmosphere with a very natural vocal tone.</span>
+      <span class="adv-score">72</span>
+    </div>
+    <div class="adv-cards">
+      <div class="adv-card">
+        <span class="adv-icon">💡</span>
+        <span class="adv-text">Vocal: Group Fader –1.5dB to sit the voice slightly deeper into the instrumental bed.</span>
+      </div>
+      <div class="adv-card">
+        <span class="adv-icon">💡</span>
+        <span class="adv-text">Drum: Compressor (Ratio 4:1 / Attack 25ms / Makeup +2dB) to control peaks while maintaining punch.</span>
+      </div>
+      <div class="adv-card">
+        <span class="adv-icon">💡</span>
+        <span class="adv-text">Bass: Low-cut at 40Hz and EQ 100Hz –2dB (Q 1.0) to ensure a flatter, neater low-end response.</span>
+      </div>
+    </div>
+  </div>
+  <div class="reveal">
+    <p class="section-label">What you actually see</p>
+    <h2 class="section-title" style="margin-bottom:24px;">Advice you can<br><span class="dim">act on. Now.</span></h2>
+    <p style="font-size:15px; color:var(--muted2); line-height:1.8; font-weight:300; margin-bottom:24px;">
+      Every analysis returns a score, a one-line read of your mix, and up to three actionable items — instrument, parameter, exact value. No guessing, no vague impressions.
+    </p>
+    <p style="font-size:13px; color:var(--muted); font-family:var(--font-mono); letter-spacing:0.06em;">
+      Sweetness · Fullness · Balance · Clarity
+    </p>
+  </div>
+</section>
+
+<!-- B2B -->
+<section class="b2b" id="b2b">
+  <div class="b2b-inner">
+    <p class="section-label reveal">For business</p>
+    <h2 class="b2b-title reveal">Integrate <span class="accent">AI</span><br>into your gear.</h2>
+    <p class="b2b-desc reveal">
+      Interested in embedding LIVE MAX AI into mixing consoles, stage boxes, or professional audio hardware? Let's talk.
+    </p>
+    <div class="b2b-tags reveal">
+      <span class="b2b-tag">Mixing Consoles</span>
+      <span class="b2b-tag">Stage Boxes</span>
+      <span class="b2b-tag">Monitor Controllers</span>
+      <span class="b2b-tag">OEM Integration</span>
+      <span class="b2b-tag">White Label</span>
+    </div>
+    <a href="mailto:hello@dumpit.dev" class="b2b-email reveal">hello@dumpit.dev</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">LIVE MAX <span>AI</span></div>
+  <div class="footer-copy">© 2026 dumpit.dev — Built for the stage.</div>
+</footer>
+
+<script>
+// Reveal all elements immediately — no observer issues
+document.querySelectorAll('.reveal').forEach(el => {
+  el.style.opacity = '1';
+  el.style.transform = 'translateY(0)';
+});
+</script>
+</body>
+</html>
