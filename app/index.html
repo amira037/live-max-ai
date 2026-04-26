@@ -89,6 +89,18 @@ Bass: 50~60ms attack / 150~300ms release
 
 `.trim();
 
+const QUICK_SYSTEM_PROMPT = `You are a live PA sound engineer advisor.
+- Live PA only: consider feedback, room reflections, audience absorption
+- Harsh zone 2.5~5kHz / sibilance 6~8kHz: advise only if severe and clearly audible
+- Use: fader(db), group fader(db), compressor (Ratio/Attack/MakeupGain), EQ (with Q), low-cut, high-cut, shelving, reverb
+- Group Balance: Lead vs. Backing, Rhythm vs. Melody, Transient vs. Sustain, Vox vs Inst
+- Ignore any source not heard in this clip
+
+[OUTPUT]
+- First line: one positive summary sentence
+- 1–3 actionable advice items. Always name the instrument.
+- Actionable: Precise dB values and specific EQ points, Q factors`.trim();
+
 const MODE_PROMPTS = {
   music:  "",
   speech: "Speech intelligibility is the absolute priority.",
@@ -133,6 +145,34 @@ const MIX_PROMPTS = {
     '최대명료도':"Consonants and articulation must be clearly heard. Prioritize removing masking elements.",
   },
 };
+
+function buildMixPrefLines(mixPref) {
+  const mode = mixPref.type;
+  const lines = ['[Mix preference — advise according to these guidelines. Never violate these instructions.]'];
+  const density = MIX_PROMPTS.soundDensity[mixPref.density];
+  if (density) lines.push(`Sound density: ${density}`);
+  if (mode === 'music' || mode === 'mixed') {
+    const vocal = mixPref.vocal || 'yes';
+    if (vocal === 'none') {
+      lines.push('Vocal: No vocals in this mix. Do not give any vocal-related advice.');
+    } else {
+      if (vocal === 'leader') lines.push('Vocal: There is a lead speaker whose voice must always be slightly more prominent than other vocalists.');
+      const vt = MIX_PROMPTS.vocalTone[mixPref.vocalTone];
+      const vw = MIX_PROMPTS.vocalWeight[mixPref.vocalWeight];
+      if (vt) lines.push(`Vocal tone: ${vt}`);
+      if (vw) lines.push(`Vocal weight: ${vw}`);
+    }
+    const bf = MIX_PROMPTS.bassFeeling[mixPref.lowFeel];
+    const dp = MIX_PROMPTS.drumPunch[mixPref.drumPunch];
+    if (bf) lines.push(`Low end: ${bf}`);
+    if (dp) lines.push(`Drums: ${dp}`);
+  }
+  if (mode === 'speech' || mode === 'mixed') {
+    const sc = MIX_PROMPTS.speechClarity[mixPref.clarity];
+    if (sc) lines.push(`Speech clarity: ${sc}`);
+  }
+  return lines.join('\n');
+}
 
 function buildMixPrompt(mixPref) {
   const lang = (typeof state !== 'undefined' && state.lang) || 'ko';
@@ -1430,6 +1470,10 @@ input[type=range] {
             <span class="mic-icon">🎙</span>
             <span class="mic-label" id="mic-label">MAX AI</span>
           </div>
+          <div id="depth-toggle" style="display:flex;flex-direction:column;align-items:center;border-radius:99px;overflow:hidden;border:1px solid var(--border2);flex-shrink:0;">
+            <span id="depth-quick"  onclick="setAnalysisDepth('quick')"  style="padding:clamp(5px,1vw,8px) clamp(10px,2vw,16px);font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;width:100%;text-align:center;cursor:pointer;">⚡</span>
+            <span id="depth-detail" onclick="setAnalysisDepth('detail')" style="padding:clamp(5px,1vw,8px) clamp(10px,2vw,16px);font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;width:100%;text-align:center;cursor:pointer;border-top:1px solid var(--border2);">🔬</span>
+          </div>
         </div>
         <div class="countdown" id="countdown"></div>
       </div>
@@ -1701,6 +1745,27 @@ input[type=range] {
             <button class="btn btn-secondary" data-i18n="memo_save_preset" onclick="saveMemoPreset()">프리셋 저장</button>
           </div>
           <div id="memo-preset-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- ▶ 퀵 모드 설정 -->
+      <div class="setting-section" id="setting-section-quick">
+        <div class="acc-title" onclick="toggleAcc(this)"><span>⚡ 퀵 모드 설정</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <span style="font-family:var(--font-mono);font-size:var(--xs);color:var(--muted2);">공간 환경 반영</span>
+              <div id="quick-space-toggle" onclick="toggleQuickSpace()" style="display:flex;align-items:center;border-radius:99px;overflow:hidden;border:1px solid var(--border2);cursor:pointer;flex-shrink:0;">
+                <span style="padding:4px 12px;font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;">ON</span>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+              <span style="font-family:var(--font-mono);font-size:var(--xs);color:var(--muted2);">믹스 취향 반영</span>
+              <div id="quick-mixpref-toggle" onclick="toggleQuickMixPref()" style="display:flex;align-items:center;border-radius:99px;overflow:hidden;border:1px solid var(--border2);cursor:pointer;flex-shrink:0;">
+                <span style="padding:4px 12px;font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;">ON</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1986,6 +2051,9 @@ const state = {
   apiKey: '',
   issueHistory: [],
   lang: localStorage.getItem('livemaxai_lang') || 'ko',
+  analysisDepth:  localStorage.getItem('analysisDepth') || 'detail',
+  quickUseSpace:  JSON.parse(localStorage.getItem('quickUseSpace')  ?? 'false'),
+  quickUseMixPref: JSON.parse(localStorage.getItem('quickUseMixPref') ?? 'false'),
 };
 
 const PHONE_CORRECTION = [8,8,7,6,5,4,3,2,1,0,0,-1,-1,-1,-2,-2,-2,-2,-3,-3,-3,-3,-4,-4,-4,-4,-4,-5,-5,-5,-5,-5];
@@ -2309,6 +2377,7 @@ function setAnalysisMode(mode) {
   updateAnalysisModeUI();
 }
 function updateAnalysisModeUI() {
+  const isQuick = state.analysisDepth === 'quick';
   ['mix','solo','speech'].forEach(m => {
     const el = document.getElementById('amode-' + m);
     if (!el) return;
@@ -2316,6 +2385,58 @@ function updateAnalysisModeUI() {
     el.style.background = active ? 'var(--accent)' : 'transparent';
     el.style.color      = active ? '#000' : 'var(--muted2)';
   });
+  const amodEl = document.getElementById('analysis-mode-toggle');
+  if (amodEl) {
+    amodEl.style.opacity       = isQuick ? '0.3' : '1';
+    amodEl.style.pointerEvents = isQuick ? 'none' : '';
+  }
+}
+
+function setAnalysisDepth(depth) {
+  state.analysisDepth = depth;
+  localStorage.setItem('analysisDepth', depth);
+  updateAnalysisDepthUI();
+}
+
+function updateAnalysisDepthUI() {
+  const isQuick = state.analysisDepth === 'quick';
+  ['quick','detail'].forEach(d => {
+    const el = document.getElementById('depth-' + d);
+    if (!el) return;
+    const active = state.analysisDepth === d;
+    el.style.background = active ? 'var(--accent)' : 'transparent';
+    el.style.color      = active ? '#000' : 'var(--muted2)';
+  });
+  const amodEl = document.getElementById('analysis-mode-toggle');
+  if (amodEl) {
+    amodEl.style.opacity       = isQuick ? '0.3' : '1';
+    amodEl.style.pointerEvents = isQuick ? 'none' : '';
+  }
+}
+
+function toggleQuickSpace() {
+  state.quickUseSpace = !state.quickUseSpace;
+  localStorage.setItem('quickUseSpace', JSON.stringify(state.quickUseSpace));
+  renderQuickModeSettings();
+}
+
+function toggleQuickMixPref() {
+  state.quickUseMixPref = !state.quickUseMixPref;
+  localStorage.setItem('quickUseMixPref', JSON.stringify(state.quickUseMixPref));
+  renderQuickModeSettings();
+}
+
+function renderQuickModeSettings() {
+  const spaceEl = document.getElementById('quick-space-toggle');
+  const mixEl   = document.getElementById('quick-mixpref-toggle');
+  if (spaceEl) {
+    spaceEl.style.background = state.quickUseSpace  ? 'var(--accent)' : 'transparent';
+    spaceEl.style.color      = state.quickUseSpace  ? '#000' : 'var(--muted2)';
+  }
+  if (mixEl) {
+    mixEl.style.background   = state.quickUseMixPref ? 'var(--accent)' : 'transparent';
+    mixEl.style.color        = state.quickUseMixPref ? '#000' : 'var(--muted2)';
+  }
 }
 
 // ── 메모 프리셋 ──
@@ -2795,33 +2916,22 @@ async function analyzeWithGemini(audioBlob, num) {
   try {
     const base64 = await blobToBase64(audioBlob);
 
-    // 1. SYSTEM_PROMPT + 믹스 취향
-    let mixSection;
-    if (state.soloMode) {
-      // SOLO 모드: 사운드밀도·저역느낌만 전달
-      const soloLines = [SYSTEM_PROMPT, ''];
-      soloLines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
-      const density = MIX_PROMPTS.soundDensity[state.mixPref.density];
-      if (density) soloLines.push(`Sound density: ${density}`);
-      const bf = MIX_PROMPTS.bassFeeling[state.mixPref.lowFeel];
-      if (bf) soloLines.push(`Low end: ${bf}`);
-      mixSection = soloLines.filter(l => l !== undefined).join('\n');
-    } else {
-      mixSection = buildMixPrompt(state.mixPref);
-    }
+    const isQuick = state.analysisDepth === 'quick';
+    const langLine = state.lang === 'en' ? 'Always respond in English.' : 'Always respond in Korean.';
 
-    // 2. 공간 환경 + 공간 메모 (SOLO 모드에서는 생략)
-    const env = state.spaceEnv;
+    let mixSection;
     let spaceSection = '';
-    if (!state.soloMode) {
-      if ((env.mode || 'live') === 'studio') {
-        spaceSection = '공간 환경: 공간크기=소형 실내, 반사음=적음, 서브우퍼=없음, 딜레이스피커=없음, 피드백여유=보통, never mention room acoustics, reflections, or space characteristics in advice';
-         mixSection = mixSection
-          .replace(
-          'You are a live PA sound engineer advisor.', 
-          'You are a professional studio recording engineer.'
-          );
-      } else {
+    let historySection = '';
+    let soloNote = '';
+
+    if (isQuick) {
+      // ── 퀵 모드 ──
+      mixSection = QUICK_SYSTEM_PROMPT + '\n' + langLine;
+      if (state.quickUseMixPref) {
+        mixSection += '\n' + buildMixPrefLines(state.mixPref);
+      }
+      if (state.quickUseSpace) {
+        const env = state.spaceEnv;
         const envParts = [];
         if (env.venue)  envParts.push(`공간크기=${env.venue}`);
         if (env.reverb) envParts.push(`반사음=${env.reverb}`);
@@ -2833,35 +2943,69 @@ async function analyzeWithGemini(audioBlob, num) {
           env.memo ? '공간 메모: ' + env.memo : '',
         ].filter(Boolean).join('\n');
       }
+    } else {
+      // ── 디테일 모드 (기존 로직 100% 그대로) ──
+      if (state.soloMode) {
+        const soloLines = [SYSTEM_PROMPT, ''];
+        soloLines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
+        const density = MIX_PROMPTS.soundDensity[state.mixPref.density];
+        if (density) soloLines.push(`Sound density: ${density}`);
+        const bf = MIX_PROMPTS.bassFeeling[state.mixPref.lowFeel];
+        if (bf) soloLines.push(`Low end: ${bf}`);
+        mixSection = soloLines.filter(l => l !== undefined).join('\n');
+      } else {
+        mixSection = buildMixPrompt(state.mixPref);
+      }
+
+      const env = state.spaceEnv;
+      if (!state.soloMode) {
+        if ((env.mode || 'live') === 'studio') {
+          spaceSection = '공간 환경: 공간크기=소형 실내, 반사음=적음, 서브우퍼=없음, 딜레이스피커=없음, 피드백여유=보통, never mention room acoustics, reflections, or space characteristics in advice';
+          mixSection = mixSection.replace(
+            'You are a live PA sound engineer advisor.',
+            'You are a professional studio recording engineer.'
+          );
+        } else {
+          const envParts = [];
+          if (env.venue)  envParts.push(`공간크기=${env.venue}`);
+          if (env.reverb) envParts.push(`반사음=${env.reverb}`);
+          if (env.sub)    envParts.push(`서브우퍼=${env.sub}`);
+          if (env.delay)  envParts.push(`딜레이스피커=${env.delay}`);
+          if (env.fb)     envParts.push(`피드백여유=${env.fb}`);
+          spaceSection = [
+            envParts.length ? '공간 환경: ' + envParts.join(', ') : '',
+            env.memo ? '공간 메모: ' + env.memo : '',
+          ].filter(Boolean).join('\n');
+        }
+      }
+
+      historySection = state.issueHistory.length
+        ? 'ALREADY ADVISED — Do NOT repeat or rephrase any of these suggestions. Find a different problem:\n' + state.issueHistory.join('\n')
+        : '';
+
+      soloNote = state.soloMode
+        ? '\nSingle instrument analysis mode. Focus only on the single most dominant instrument. Treat any other faint or background sounds as irrelevant bleed and ignore them completely. Do not give band balance advice.'
+        : '';
     }
 
-    // 3. 입력 소스
+    // 공통 — 입력 소스
     const sourceInfo = state.source === 'phone'
-       ? 'Input: Phone mic. Low <200Hz weak, 2.5~5kHz boosted, vocals prominent. Prefer balance/room advice over EQ cuts. Never mention mic type.'
-       : 'Input: Audio interface (flat, accurate frequency response)';
+      ? 'Input: Phone mic. Low <200Hz weak, 2.5~5kHz boosted, vocals prominent. Prefer balance/room advice over EQ cuts. Never mention mic type.'
+      : 'Input: Audio interface (flat, accurate frequency response)';
 
-    // 5. 즉석 메모
+    // 공통 — 즉석 메모 (퀵/디테일 모두 반영)
     const instantMemo = document.getElementById('instant-memo')?.value.trim();
     const memoSection = instantMemo ? '즉석 메모: ' + instantMemo : '';
 
-    // 6. 사용자 힌트
+    // 공통 — 사용자 힌트 (퀵은 speech 모드 무시)
     const userHint = document.getElementById('user-hint-input')?.value.trim();
     const hintSection = userHint
       ? `[User focus — OVERRIDE PRIORITY]\nThe user specifically wants advice on: ${userHint}\nEven if this element sounds quiet or subtle in the clip, do NOT ignore it. Analyze and advise on it regardless of volume. This overrides the "ignore any source not heard" constraint.`
-      : state.analysisMode === 'speech'
+      : (!isQuick && state.analysisMode === 'speech')
         ? '[User focus] Speech intelligibility is the absolute priority. Focus on vocal clarity, intelligibility, and any frequency masking of speech.'
         : '';
 
-    // 7. 이슈 히스토리
-    const historySection = state.issueHistory.length
-      ? 'ALREADY ADVISED — Do NOT repeat or rephrase any of these suggestions. Find a different problem:\n' + state.issueHistory.join('\n')
-      : '';
-
     const contextBlock = [mixSection, spaceSection, sourceInfo, memoSection, hintSection, historySection].filter(Boolean).join('\n');
-
-    const soloNote = state.soloMode
-      ? '\nSingle instrument analysis mode. Focus only on the single most dominant instrument. Treat any other faint or background sounds as irrelevant bleed and ignore them completely. Do not give band balance advice.'
-      : '';
 
     const silenceNote = '\n: the clip is completely silent with zero musical content, output: SILENT';
 
@@ -2900,8 +3044,8 @@ ${t('ai_prompt')}`;
     const parts = data.candidates?.[0]?.content?.parts||[];
     const text = parts.filter(p=>p.text && !p.thought).map(p=>p.text).join('').trim();
     if (!text) throw new Error(t('err_empty'));
-    // SCORE / CHANNELS를 위치·형식에 무관하게 전체 텍스트에서 추출
-    const scoreGlobal = text.match(/SCORE\s*:\s*(\d+)/i);
+    // SCORE / CHANNELS 추출 (퀵 모드는 스코어 스킵)
+    const scoreGlobal = !isQuick ? text.match(/SCORE\s*:\s*(\d+)/i) : null;
     const score = scoreGlobal ? parseInt(scoreGlobal[1]) : null;
     const channelGlobal = text.match(/CHANNELS\s*:\s*([^\n,][^\n]*)/i);
     const channels = channelGlobal
@@ -2922,13 +3066,15 @@ ${t('ai_prompt')}`;
     const contentLines = lines;
     const result = { score, channels, problem: contentLines[0]||'분석 완료', solutions: contentLines.slice(1) };
 
-    // 히스토리 저장
-    const chTag = channels.length ? `[${channels.join(',')}] ` : '';
-    const hintTag = userHint ? `(힌트: ${userHint}) ` : state.analysisMode !== 'mix' ? `(${state.analysisMode}) ` : '';
-    const solTag = result.solutions.length ? result.solutions.slice(0,2).join(' / ') : '';
-    const historyEntry = `${chTag}${hintTag}${result.problem}${solTag ? ' → ' + solTag : ''}`;
-    state.issueHistory.push(historyEntry);
-    if (state.issueHistory.length > 3) state.issueHistory.shift();
+    // 히스토리 저장 (퀵 모드는 스킵)
+    if (!isQuick) {
+      const chTag = channels.length ? `[${channels.join(',')}] ` : '';
+      const hintTag = userHint ? `(힌트: ${userHint}) ` : state.analysisMode !== 'mix' ? `(${state.analysisMode}) ` : '';
+      const solTag = result.solutions.length ? result.solutions.slice(0,2).join(' / ') : '';
+      const historyEntry = `${chTag}${hintTag}${result.problem}${solTag ? ' → ' + solTag : ''}`;
+      state.issueHistory.push(historyEntry);
+      if (state.issueHistory.length > 3) state.issueHistory.shift();
+    }
 
     if (statusEl) statusEl.remove();
     renderAnalysisCard(groupEl, result);
@@ -3010,6 +3156,7 @@ function renderSettings() {
   renderSpaceEnv();
   renderMixPref();
   renderMemoPresets();
+  renderQuickModeSettings();
 }
 function selectSource(src) { state.source=src; renderSettings(); }
 function selectModelPreset(preset) { state.modelPreset = preset; saveToStorage(); renderSettings(); }
@@ -3528,6 +3675,7 @@ applyLang();
 updateSourceUI();
 updateDryWetUI();
 updateAnalysisModeUI();
+updateAnalysisDepthUI();
 // 고정 메모 초기 로드
 (function() {
   if (state.pinnedMemoIdx >= 0 && state.memoPresets[state.pinnedMemoIdx]) {
