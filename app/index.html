@@ -1470,9 +1470,8 @@ input[type=range] {
             <span class="mic-icon">🎙</span>
             <span class="mic-label" id="mic-label">MAX AI</span>
           </div>
-          <div id="depth-toggle" style="display:flex;flex-direction:column;align-items:center;border-radius:99px;overflow:hidden;border:1px solid var(--border2);flex-shrink:0;">
-            <span id="depth-quick"  onclick="setAnalysisDepth('quick')"  style="padding:clamp(5px,1vw,8px) clamp(10px,2vw,16px);font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;width:100%;text-align:center;cursor:pointer;">⚡</span>
-            <span id="depth-detail" onclick="setAnalysisDepth('detail')" style="padding:clamp(5px,1vw,8px) clamp(10px,2vw,16px);font-family:var(--font-mono);font-size:var(--xs);transition:all 0.2s;width:100%;text-align:center;cursor:pointer;border-top:1px solid var(--border2);">🔬</span>
+          <div id="depth-toggle" onclick="toggleAnalysisDepth()" style="display:flex;align-items:center;justify-content:center;border-radius:99px;border:1px solid var(--border2);padding:clamp(5px,1vw,8px) clamp(10px,2vw,14px);cursor:pointer;transition:all 0.2s;flex-shrink:0;">
+            <span id="depth-quick" style="font-size:var(--md);line-height:1;transition:all 0.2s;">⚡</span>
           </div>
         </div>
         <div class="countdown" id="countdown"></div>
@@ -2377,7 +2376,6 @@ function setAnalysisMode(mode) {
   updateAnalysisModeUI();
 }
 function updateAnalysisModeUI() {
-  const isQuick = state.analysisDepth === 'quick';
   ['mix','solo','speech'].forEach(m => {
     const el = document.getElementById('amode-' + m);
     if (!el) return;
@@ -2385,28 +2383,22 @@ function updateAnalysisModeUI() {
     el.style.background = active ? 'var(--accent)' : 'transparent';
     el.style.color      = active ? '#000' : 'var(--muted2)';
   });
-  const amodEl = document.getElementById('analysis-mode-toggle');
-  if (amodEl) {
-    amodEl.style.opacity       = isQuick ? '0.3' : '1';
-    amodEl.style.pointerEvents = isQuick ? 'none' : '';
-  }
 }
 
-function setAnalysisDepth(depth) {
-  state.analysisDepth = depth;
-  localStorage.setItem('analysisDepth', depth);
+function toggleAnalysisDepth() {
+  state.analysisDepth = state.analysisDepth === 'quick' ? 'detail' : 'quick';
+  localStorage.setItem('analysisDepth', state.analysisDepth);
   updateAnalysisDepthUI();
 }
 
 function updateAnalysisDepthUI() {
   const isQuick = state.analysisDepth === 'quick';
-  ['quick','detail'].forEach(d => {
-    const el = document.getElementById('depth-' + d);
-    if (!el) return;
-    const active = state.analysisDepth === d;
-    el.style.background = active ? 'var(--accent)' : 'transparent';
-    el.style.color      = active ? '#000' : 'var(--muted2)';
-  });
+  const btn = document.getElementById('depth-toggle');
+  if (btn) {
+    btn.style.background   = isQuick ? 'var(--accent)' : 'transparent';
+    btn.style.borderColor  = isQuick ? 'var(--accent)' : '';
+    btn.style.boxShadow    = isQuick ? '0 0 10px rgba(0,255,136,0.4)' : '';
+  }
   const amodEl = document.getElementById('analysis-mode-toggle');
   if (amodEl) {
     amodEl.style.opacity       = isQuick ? '0.3' : '1';
