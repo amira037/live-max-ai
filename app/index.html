@@ -3292,8 +3292,9 @@ function buildAIContext() {
 // ── TUTORIAL ──
 function getTutorialSteps() {
   const ua = navigator.userAgent;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone;
   const installKey = /android/i.test(ua) ? 'tut_7_android' : /iphone|ipad|ipod/i.test(ua) ? 'tut_7_ios' : 'tut_7_desktop';
-  return [
+  const steps = [
     { target: null,                                        text: t('tut_0'), settings: false },
     { target: '#mic-btn',                                  text: t('tut_1'), settings: false },
     { targets: ['#user-hint-input','#analysis-mode-toggle'], text: t('tut_2'), settings: false },
@@ -3302,9 +3303,10 @@ function getTutorialSteps() {
     { target: '#setting-section-space',                    text: t('tut_4'), settings: true, openSection: '#setting-section-space' },
     { target: '#setting-section-mix',                      text: t('tut_5'), settings: true, openSection: '#setting-section-mix' },
     { target: '#dry-wet-toggle',                           text: t('tut_6'), settings: false },
-    { target: null,                                        text: t(installKey), settings: false },
+    ...(!isStandalone ? [{ target: null, text: t(installKey), settings: false }] : []),
     { target: null,                                        text: t('tut_8'), settings: false },
   ];
+  return steps;
 }
 
 
@@ -3493,10 +3495,18 @@ function _tutDone() {
 loadSettings();
 requestStoragePersist();
 
-// 저장 손실 감지: loadSettings 후 API 키가 없고 tutorial_done 마커도 없는 경우 = 첫 실행
-// tutorial_done은 있는데 API 키가 없으면 = localStorage 초기화됨
+// 저장 손실 감지:
+// case A) tutorial_done은 있는데 API 키가 없으면 = localStorage 일부 초기화
+// case B) standalone 모드인데 localStorage 전체가 없으면 = iOS 전체 초기화
 (function checkRestorable() {
-  if (localStorage.getItem('tutorial_done') && !state.apiKey) {
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone;
+  const allGone = isStandalone && !localStorage.getItem('livemaxai') && !localStorage.getItem('tutorial_done');
+  const partialLoss = localStorage.getItem('tutorial_done') && !state.apiKey;
+
+  if (partialLoss || allGone) {
+    // standalone + 전체 초기화 시 tutorial 재실행 방지
+    if (allGone) localStorage.setItem('tutorial_done', '1');
+
     setTimeout(() => {
       const banner = document.createElement('div');
       banner.id = 'storage-loss-banner';
