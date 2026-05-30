@@ -1539,14 +1539,6 @@ input[type=range] {
         <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_model">AI 모델</span><span class="acc-arrow">▶</span></div>
         <div class="acc-body">
           <div class="radio-group">
-            <div class="radio-option" id="preset-flash-30-minimal" onclick="selectModelPreset('flash-30-minimal')">
-              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.0 Minimal</div><div class="ch-hint" data-i18n="model_flash30min_hint">빠른 응답. 균형잡힌 톤</div></div>
-            </div>
-            <div class="radio-option" id="preset-flash-30-high" onclick="selectModelPreset('flash-30-high')">
-              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.0 High</div><div class="ch-hint" data-i18n="model_flash30high_hint">따뜻한 톤</div></div>
-            </div>
             <div class="radio-option" id="preset-flash-31-minimal" onclick="selectModelPreset('flash-31-minimal')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
               <div><div class="radio-text">Flash 3.1 Minimal</div><div class="ch-hint" data-i18n="model_flash31min_hint">메인파트 마스킹 조언</div></div>
@@ -1562,6 +1554,22 @@ input[type=range] {
             <div class="radio-option" id="preset-flash-31-high" onclick="selectModelPreset('flash-31-high')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
               <div><div class="radio-text">Flash 3.1 High</div><div class="ch-hint" data-i18n="model_flash31high_hint">균형잡힌 톤</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-35-minimal" onclick="selectModelPreset('flash-35-minimal')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.5 Minimal</div><div class="ch-hint" data-i18n="model_flash35min_hint">메인파트 마스킹 조언</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-35-low" onclick="selectModelPreset('flash-35-low')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.5 Low</div><div class="ch-hint" data-i18n="model_flash35low_hint">파트별 밸런스</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-35-mid" onclick="selectModelPreset('flash-35-mid')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.5 Medium</div><div class="ch-hint" data-i18n="model_flash35mid_hint">깨끗한 톤, 분리도</div></div>
+            </div>
+            <div class="radio-option" id="preset-flash-35-high" onclick="selectModelPreset('flash-35-high')">
+              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+              <div><div class="radio-text">Flash 3.5 High</div><div class="ch-hint" data-i18n="model_flash35high_hint">균형잡힌 톤</div></div>
             </div>
           </div>
         </div>
@@ -1831,9 +1839,10 @@ const I18N = {
     advice_notice:'⚠️모든 조언은 라이브 PA 환경을 기준으로 제안됩니다',
     howl_title:'하울링 감지', howl_last:'마지막 하울링', howl_near:'부근', howl_at:'감지',
     settings_title:'설정',
-    model_flash30min_hint:'빠른 응답. 균형잡힌 톤', model_flash30high_hint:'따뜻한 톤',
     model_flash31min_hint:'메인파트 마스킹 조언', model_flash31low_hint:'파트별 밸런스',
     model_flash31mid_hint:'깨끗한 톤, 분리도', model_flash31high_hint:'균형잡힌 톤',
+    model_flash35min_hint:'메인파트 마스킹 조언', model_flash35low_hint:'파트별 밸런스',
+    model_flash35mid_hint:'깨끗한 톤, 분리도', model_flash35high_hint:'균형잡힌 톤',
     sec_device:'입력 장치', sec_model:'AI 모델', sec_api:'API 연결', sec_space:'공간 환경',
     sec_mix:'믹스 취향', sec_memo:'즉석 메모', sec_help:'도움말', sec_backup:'설정 백업',
     api_proxy:'기본 프록시 사용', api_proxy_hint:'proxy.dumpit.dev 경유 (기본값)',
@@ -1902,9 +1911,10 @@ const I18N = {
     advice_notice:'⚠️All advice is tailored for live PA environments',
     howl_title:'Feedback Detected', howl_last:'Last Feedback', howl_near:'around', howl_at:'detected',
     settings_title:'SETTINGS',
-    model_flash30min_hint:'Fast response. Balanced tone advice', model_flash30high_hint:'Warm tone advice',
     model_flash31min_hint:'Main part masking advice', model_flash31low_hint:'Per-part balance advice',
     model_flash31mid_hint:'Clean tone & separation advice', model_flash31high_hint:'Balanced tone advice',
+    model_flash35min_hint:'Main part masking advice', model_flash35low_hint:'Per-part balance advice',
+    model_flash35mid_hint:'Clean tone & separation advice', model_flash35high_hint:'Balanced tone advice',
     sec_device:'Input Device', sec_model:'AI Model', sec_api:'API Connection', sec_space:'Venue',
     sec_mix:'Mix Style', sec_memo:'Session Notes', sec_help:'Help', sec_backup:'Backup',
     api_proxy:'Use Default Proxy', api_proxy_hint:'Via proxy.dumpit.dev (default)',
@@ -2060,12 +2070,14 @@ const BANDS = [20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,10
 const HOWL_SUSTAIN_FRAMES = 60;
 
 const MODEL_CONFIG = {
-  'flash-30-minimal': { model: 'gemini-3-flash-preview',        thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
-  'flash-30-high':    { model: 'gemini-3-flash-preview',        thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2500 },
   'flash-31-minimal': { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
   'flash-31-low':     { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1400 },
-  'flash-31-mid':     { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'MEDIUM' }, maxOutputTokens: 1800 },
+  'flash-31-mid':     { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 1800 },
   'flash-31-high':    { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2500 },
+  'flash-35-minimal': { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
+  'flash-35-low':     { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1400 },
+  'flash-35-mid':     { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 1800 },
+  'flash-35-high':    { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2500 },
 };
 
 // ── STORAGE ──
