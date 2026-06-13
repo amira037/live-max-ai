@@ -4,3 +4,10 @@ backup/
 icons/icons2/
 live-max-ai-pwa.zip
 analysis-flow.md
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
