@@ -1,5 +1,5 @@
-# livemaxai.dumpit.dev — allow all crawlers (Google, Naver Yeti, Bing, etc.)
+# live.dumpit.dev — allow all crawlers (Google, Naver Yeti, Bing, etc.)
 User-agent: *
 Allow: /
 
-Sitemap: https://livemaxai.dumpit.dev/sitemap.xml
+Sitemap: https://live.dumpit.dev/sitemap.xml
