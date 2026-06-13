@@ -1,16 +1,21 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LIVE MAX AI — AI Mix Advisor for Live PA Engineers</title>
-<meta name="description" content="Real-time AI mix analysis for live PA engineers. Cross-check your ears in seconds.">
-<link rel="canonical" href="https://livemaxai.dumpit.dev/">
+<title>LIVE MAX AI — 라이브 음향 엔지니어를 위한 AI 믹스 어드바이저</title>
+<meta name="description" content="현장 음향 엔지니어를 위한 실시간 AI 믹스 분석. 몇 초 만에 믹스를 검증하세요.">
+<link rel="canonical" href="https://livemaxai.dumpit.dev/ko/">
 <link rel="alternate" hreflang="en" href="https://livemaxai.dumpit.dev/">
 <link rel="alternate" hreflang="ko" href="https://livemaxai.dumpit.dev/ko/">
 <link rel="alternate" hreflang="x-default" href="https://livemaxai.dumpit.dev/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="LIVE MAX AI — 라이브 음향 엔지니어를 위한 AI 믹스 어드바이저">
+<meta property="og:description" content="현장 음향 엔지니어를 위한 실시간 AI 믹스 분석. 몇 초 만에 믹스를 검증하세요.">
+<meta property="og:url" content="https://livemaxai.dumpit.dev/ko/">
+<meta property="og:locale" content="ko_KR">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Black+Han+Sans&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 
@@ -26,8 +31,9 @@
   --accent:   #00ff88;
   --accent-d: #00cc6a;
   --blue:     #4da6ff;
-  --font-display: 'Bebas Neue', sans-serif;
-  --font-body:    'Inter', sans-serif;
+  --font-display: 'Black Han Sans', sans-serif;
+  --font-display-brand: 'Bebas Neue', sans-serif;
+  --font-body:    'Inter', 'Noto Sans KR', sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
 }
 
@@ -764,6 +770,7 @@ footer {
   footer { padding: 24px 20px; }
   .steps::before { display: none; }
 }
+.nav-logo, .hero-title, .footer-logo{font-family:var(--font-display-brand);}
 .nav-lang{color:var(--muted2);font-family:var(--font-mono);font-size:12px;letter-spacing:0.08em;text-decoration:none;}
 .nav-lang:hover{color:var(--text);}
 </style>
@@ -774,11 +781,11 @@ footer {
 <nav>
   <div class="nav-logo">LIVE MAX <span>AI</span></div>
   <ul class="nav-links">
-    <li><a href="#features">Features</a></li>
-    <li><a href="#how">How it works</a></li>
-    <li><a href="#b2b">For Business</a></li>
-    <li><a href="/ko/" class="nav-lang">KO</a></li>
-    <li><a href="/app" class="nav-cta">Launch App</a></li>
+    <li><a href="#features">기능</a></li>
+    <li><a href="#how">사용법</a></li>
+    <li><a href="#b2b">비즈니스</a></li>
+    <li><a href="/" class="nav-lang">EN</a></li>
+    <li><a href="/app" class="nav-cta">앱 실행</a></li>
   </ul>
 </nav>
 
@@ -786,26 +793,26 @@ footer {
 <section class="hero">
   <div class="hero-glow"></div>
 
-  <p class="hero-eyebrow">Real-time AI mix analysis</p>
+  <p class="hero-eyebrow">실시간 AI 믹스 분석</p>
   <h1 class="hero-title">LIVE<br><span class="accent">MAX</span> <span class="dim">AI</span></h1>
-  <p class="hero-sub">Cross-check your ears.</p>
+  <p class="hero-sub">당신의 믹스에 적용할 조언을 얻으세요.</p>
   <p class="hero-desc">
-    Capture 5 seconds of your mix. Get instant, actionable feedback from an AI trained on live PA engineering principles.
+    믹스를 5초만 녹음하세요. 라이브 PA 엔지니어링 원리로 학습한 AI가 즉시 적용 가능한 피드백을 돌려줍니다.
   </p>
   <div class="hero-actions">
-    <a href="/app" class="btn-primary">Launch App</a>
-    <a href="#how" class="btn-secondary">See how it works</a>
+    <a href="/app" class="btn-primary">앱 실행</a>
+    <a href="#how" class="btn-secondary">사용법 보기</a>
   </div>
   <p class="hero-apikey">
-    Use your own API key &nbsp;·&nbsp; or try for free &nbsp;·&nbsp;
-    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key at Google AI Studio →</a>
+    내 API 키 사용 &nbsp;·&nbsp; 또는 무료로 체험 &nbsp;·&nbsp;
+    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio에서 무료 키 받기 →</a>
   </p>
 
   <div class="hero-visual">
     <div class="spectrum-wrap">
       <div class="spectrum-label">
-        <span>Spectrum Analyzer</span>
-        <span class="live-dot"><span class="live-dot-circle"></span> Analyzing</span>
+        <span>스펙트럼 분석기</span>
+        <span class="live-dot"><span class="live-dot-circle"></span> 분석 중</span>
       </div>
       <!-- freq labels -->
       <div class="freq-labels">
@@ -890,38 +897,38 @@ footer {
 
 <!-- FEATURES -->
 <section class="features" id="features">
-  <p class="section-label reveal">Why it works</p>
-  <h2 class="section-title reveal">Built for<br><span class="dim">the stage.</span></h2>
+  <p class="section-label reveal">작동 원리</p>
+  <h2 class="section-title reveal">무대를 위해<br><span class="dim">설계했다.</span></h2>
   <div class="features-grid">
     <div class="feature-card reveal">
       <div class="feature-num">01</div>
-      <div class="feature-title">5-Second Analysis</div>
-      <div class="feature-desc">Tap once. The app captures a short audio clip and sends it to AI for real-time analysis. No setup, no waiting.</div>
+      <div class="feature-title">5초 분석</div>
+      <div class="feature-desc">한 번 탭하세요. 짧은 오디오를 녹음해 AI로 실시간 분석합니다. 설정도, 기다림도 없습니다.</div>
     </div>
     <div class="feature-card reveal">
       <div class="feature-num">02</div>
-      <div class="feature-title">Precise EQ Advice</div>
-      <div class="feature-desc">Exact frequencies, Q values, and dB amounts — not generic tips. Advice you can act on immediately at the console.</div>
+      <div class="feature-title">정밀 EQ 조언</div>
+      <div class="feature-desc">정확한 주파수, Q 값, dB 수치까지 — 두루뭉술한 팁이 아닙니다. 콘솔에서 바로 적용할 수 있는 조언입니다.</div>
     </div>
     <div class="feature-card reveal">
       <div class="feature-num">03</div>
-      <div class="feature-title">Mix Scoring</div>
-      <div class="feature-desc">Sweetness, Fullness, Balance, Clarity — scored out of 100. Objective feedback even when your ears are fatigued.</div>
+      <div class="feature-title">믹스 점수화</div>
+      <div class="feature-desc">스위트니스, 풀니스, 밸런스, 클래리티 — 100점 만점으로 채점. 귀가 지쳤을 때도 객관적인 피드백을 줍니다.</div>
     </div>
     <div class="feature-card reveal">
       <div class="feature-num">04</div>
-      <div class="feature-title">Feedback Detection</div>
-      <div class="feature-desc">Detects howling and feedback frequencies instantly. Flags offending bands before they blow up the room.</div>
+      <div class="feature-title">하울링 감지</div>
+      <div class="feature-desc">하울링과 피드백 주파수를 즉시 감지합니다. 사고가 터지기 전에 문제 대역을 짚어줍니다.</div>
     </div>
     <div class="feature-card reveal">
       <div class="feature-num">05</div>
-      <div class="feature-title">PWA — No Install</div>
-      <div class="feature-desc">Runs on any Android or iOS device straight from the browser. Add to home screen and it works like a native app.</div>
+      <div class="feature-title">PWA — 설치 불필요</div>
+      <div class="feature-desc">안드로이드·iOS 어디서나 브라우저에서 바로 실행됩니다. 홈 화면에 추가하면 네이티브 앱처럼 동작합니다.</div>
     </div>
     <div class="feature-card reveal">
       <div class="feature-num">06</div>
-      <div class="feature-title">Mix Preferences</div>
-      <div class="feature-desc">Dial in your sound density, vocal character, low-end feel. The AI advises within your aesthetic, not against it.</div>
+      <div class="feature-title">믹스 취향 설정</div>
+      <div class="feature-desc">사운드 밀도, 보컬 캐릭터, 저음 느낌을 직접 설정하세요. AI가 당신의 취향에 맞춰 조언합니다.</div>
     </div>
   </div>
 </section>
@@ -929,23 +936,23 @@ footer {
 <!-- HOW IT WORKS -->
 <section class="how" id="how">
   <div class="how-inner">
-    <p class="section-label reveal">Workflow</p>
-    <h2 class="section-title reveal">Three steps.<br><span class="dim">That's it.</span></h2>
+    <p class="section-label reveal">작업 흐름</p>
+    <h2 class="section-title reveal">단 세 단계.<br><span class="dim">끝.</span></h2>
     <div class="steps">
       <div class="step reveal">
         <div class="step-num">01</div>
-        <div class="step-title">Capture</div>
-        <div class="step-desc">Hold your phone near the PA or stage mix. Tap to record 5 seconds of audio.</div>
+        <div class="step-title">녹음</div>
+        <div class="step-desc">PA나 무대 믹스 가까이에 폰을 두세요. 탭해서 5초간 녹음합니다.</div>
       </div>
       <div class="step reveal">
         <div class="step-num">02</div>
-        <div class="step-title">Analyze</div>
-        <div class="step-desc">AI processes the clip against your venue and mix preference settings.</div>
+        <div class="step-title">분석</div>
+        <div class="step-desc">AI가 공간과 믹스 취향 설정에 맞춰 클립을 분석합니다.</div>
       </div>
       <div class="step reveal">
         <div class="step-num">03</div>
-        <div class="step-title">Act</div>
-        <div class="step-desc">Get precise EQ points, group fader moves, and compression settings. Apply. Done.</div>
+        <div class="step-title">적용</div>
+        <div class="step-desc">정확한 EQ 포인트, 그룹 페이더 조정, 컴프레션 설정을 받습니다. 적용하면 끝.</div>
       </div>
     </div>
   </div>
@@ -954,35 +961,35 @@ footer {
 <!-- ADVICE DEMO -->
 <section class="score-section">
   <div class="score-visual reveal">
-    <div class="adv-header">Advice</div>
+    <div class="adv-header">조언</div>
     <div class="adv-badge-row">
       <span class="adv-badge">MAX AI</span>
       <span class="adv-time">00:15</span>
     </div>
     <div class="adv-summary">
-      <span class="adv-summary-text">The mix has a cohesive, warm atmosphere with a very natural vocal tone.</span>
+      <span class="adv-summary-text">전체적으로 응집력 있고 따뜻한 분위기에, 보컬 톤이 매우 자연스럽습니다.</span>
       <span class="adv-score">72</span>
     </div>
     <div class="adv-cards">
       <div class="adv-card">
         <span class="adv-icon">💡</span>
-        <span class="adv-text">Vocal: Group Fader –1.5dB to sit the voice slightly deeper into the instrumental bed.</span>
+        <span class="adv-text">보컬: 그룹 페이더 –1.5dB로 목소리를 반주에 살짝 더 묻어 자리잡게.</span>
       </div>
       <div class="adv-card">
         <span class="adv-icon">💡</span>
-        <span class="adv-text">Drum: Compressor (Ratio 4:1 / Attack 25ms / Makeup +2dB) to control peaks while maintaining punch.</span>
+        <span class="adv-text">드럼: 컴프레서(Ratio 4:1 / Attack 25ms / Makeup +2dB)로 펀치는 살리며 피크를 제어.</span>
       </div>
       <div class="adv-card">
         <span class="adv-icon">💡</span>
-        <span class="adv-text">Bass: Low-cut at 40Hz and EQ 100Hz –2dB (Q 1.0) to ensure a flatter, neater low-end response.</span>
+        <span class="adv-text">베이스: 40Hz 로우컷 + EQ 100Hz –2dB(Q 1.0)로 더 평탄하고 정돈된 저음.</span>
       </div>
     </div>
   </div>
   <div class="reveal">
-    <p class="section-label">What you actually see</p>
-    <h2 class="section-title" style="margin-bottom:24px;">Advice you can<br><span class="dim">act on. Now.</span></h2>
+    <p class="section-label">실제로 보게 되는 것</p>
+    <h2 class="section-title" style="margin-bottom:24px;">지금 바로<br><span class="dim">적용할 조언.</span></h2>
     <p style="font-size:15px; color:var(--muted2); line-height:1.8; font-weight:300; margin-bottom:24px;">
-      Every analysis returns a score, a one-line read of your mix, and up to three actionable items — instrument, parameter, exact value. No guessing, no vague impressions.
+      분석할 때마다 점수, 믹스를 한 줄로 짚은 진단, 그리고 최대 3개의 실행 항목을 줍니다 — 악기, 파라미터, 정확한 수치까지. 추측도, 막연한 느낌도 없습니다.
     </p>
     <p style="font-size:13px; color:var(--muted); font-family:var(--font-mono); letter-spacing:0.06em;">
       Sweetness · Fullness · Balance · Clarity
@@ -993,17 +1000,17 @@ footer {
 <!-- B2B -->
 <section class="b2b" id="b2b">
   <div class="b2b-inner">
-    <p class="section-label reveal">For business</p>
-    <h2 class="b2b-title reveal">Integrate <span class="accent">AI</span><br>into your gear.</h2>
+    <p class="section-label reveal">비즈니스</p>
+    <h2 class="b2b-title reveal">장비에 <span class="accent">AI</span>를<br>통합하세요.</h2>
     <p class="b2b-desc reveal">
-      Interested in embedding LIVE MAX AI into mixing consoles, stage boxes, or professional audio hardware? Let's talk.
+      LIVE MAX AI를 믹싱 콘솔, 스테이지 박스, 프로 오디오 하드웨어에 탑재하고 싶으신가요? 이야기 나눠요.
     </p>
     <div class="b2b-tags reveal">
-      <span class="b2b-tag">Mixing Consoles</span>
-      <span class="b2b-tag">Stage Boxes</span>
-      <span class="b2b-tag">Monitor Controllers</span>
-      <span class="b2b-tag">OEM Integration</span>
-      <span class="b2b-tag">White Label</span>
+      <span class="b2b-tag">믹싱 콘솔</span>
+      <span class="b2b-tag">스테이지 박스</span>
+      <span class="b2b-tag">모니터 컨트롤러</span>
+      <span class="b2b-tag">OEM 통합</span>
+      <span class="b2b-tag">화이트 라벨</span>
     </div>
     <a href="mailto:hello@dumpit.dev" class="b2b-email reveal">hello@dumpit.dev</a>
   </div>
@@ -1012,7 +1019,7 @@ footer {
 <!-- FOOTER -->
 <footer>
   <div class="footer-logo">LIVE MAX <span>AI</span></div>
-  <div class="footer-copy">© 2026 dumpit.dev — Built for the stage.</div>
+  <div class="footer-copy">© 2026 dumpit.dev — 무대를 위해 만들었습니다.</div>
 </footer>
 
 <script>
