@@ -2081,13 +2081,13 @@ const BANDS = [20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,10
 const HOWL_SUSTAIN_FRAMES = 60;
 
 const MODEL_CONFIG = {
-  'lite-35-minimal':  { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
-  'lite-35-low':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1400 },
-  'lite-35-mid':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 1800 },
-  'lite-35-high':     { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2500 },
-  'flash-35-minimal': { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 500  }, // 3.8은 MINIMAL 미지원
-  'flash-38-low':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 2400 },
-  'flash-38-mid':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 2800 },
+  'lite-35-minimal':  { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 400  },
+  'lite-35-low':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1000 },
+  'lite-35-mid':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 2500 },
+  'lite-35-high':     { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2800 },
+  'flash-35-minimal': { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 400  }, // 3.8은 MINIMAL 미지원
+  'flash-38-low':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1000 },
+  'flash-38-mid':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 2600 },
   'flash-38-high':    { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 3500 },
 };
 const DEFAULT_PRESET = 'lite-35-minimal';
