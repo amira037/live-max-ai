@@ -772,6 +772,8 @@ input[type=range] {
 }
 .api-input:focus { border-color:var(--blue); }
 .api-input::placeholder { color:var(--muted); }
+.token-field { display:flex; align-items:center; gap:6px; margin-left:auto; font-family:var(--font-mono); font-size:var(--xs); color:var(--muted); }
+.token-input { width:clamp(72px,14vw,90px); padding:6px 8px; text-align:right; }
 
 .channel-view { display:flex; flex-direction:column; gap:2px; }
 .channel-item {
@@ -1539,37 +1541,45 @@ input[type=range] {
         <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_model">AI 모델</span><span class="acc-arrow">▶</span></div>
         <div class="acc-body">
           <div class="radio-group">
-            <div class="radio-option" id="preset-flash-31-minimal" onclick="selectModelPreset('flash-31-minimal')">
+            <div class="radio-option" id="preset-lite-35-minimal" onclick="selectModelPreset('lite-35-minimal')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.1 Minimal</div><div class="ch-hint" data-i18n="model_flash31min_hint">메인파트 마스킹 조언</div></div>
+              <div style="flex:1"><div class="radio-text">Flash-Lite 3.5 Minimal</div><div class="ch-hint" data-i18n="model_lite35min_hint">메인파트 마스킹 조언</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-lite-35-minimal" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('lite-35-minimal', this.value)"></label>
             </div>
-            <div class="radio-option" id="preset-flash-31-low" onclick="selectModelPreset('flash-31-low')">
+            <div class="radio-option" id="preset-lite-35-low" onclick="selectModelPreset('lite-35-low')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.1 Low</div><div class="ch-hint" data-i18n="model_flash31low_hint">파트별 밸런스</div></div>
+              <div style="flex:1"><div class="radio-text">Flash-Lite 3.5 Low</div><div class="ch-hint" data-i18n="model_lite35low_hint">파트별 밸런스</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-lite-35-low" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('lite-35-low', this.value)"></label>
             </div>
-            <div class="radio-option" id="preset-flash-31-mid" onclick="selectModelPreset('flash-31-mid')">
+            <div class="radio-option" id="preset-lite-35-mid" onclick="selectModelPreset('lite-35-mid')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.1 Medium</div><div class="ch-hint" data-i18n="model_flash31mid_hint">깨끗한 톤, 분리도</div></div>
+              <div style="flex:1"><div class="radio-text">Flash-Lite 3.5 Medium</div><div class="ch-hint" data-i18n="model_lite35mid_hint">깨끗한 톤, 분리도</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-lite-35-mid" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('lite-35-mid', this.value)"></label>
             </div>
-            <div class="radio-option" id="preset-flash-31-high" onclick="selectModelPreset('flash-31-high')">
+            <div class="radio-option" id="preset-lite-35-high" onclick="selectModelPreset('lite-35-high')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.1 High</div><div class="ch-hint" data-i18n="model_flash31high_hint">균형잡힌 톤</div></div>
+              <div style="flex:1"><div class="radio-text">Flash-Lite 3.5 High</div><div class="ch-hint" data-i18n="model_lite35high_hint">균형잡힌 톤</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-lite-35-high" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('lite-35-high', this.value)"></label>
             </div>
             <div class="radio-option" id="preset-flash-35-minimal" onclick="selectModelPreset('flash-35-minimal')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.5 Minimal</div><div class="ch-hint" data-i18n="model_flash35min_hint">메인파트 마스킹 조언</div></div>
+              <div style="flex:1"><div class="radio-text">Flash 3.5 Minimal</div><div class="ch-hint" data-i18n="model_flash35min_hint">메인파트 마스킹 조언</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-flash-35-minimal" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('flash-35-minimal', this.value)"></label>
             </div>
-            <div class="radio-option" id="preset-flash-35-low" onclick="selectModelPreset('flash-35-low')">
+            <div class="radio-option" id="preset-flash-38-low" onclick="selectModelPreset('flash-38-low')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.5 Low</div><div class="ch-hint" data-i18n="model_flash35low_hint">파트별 밸런스</div></div>
+              <div style="flex:1"><div class="radio-text">Flash 3.8 Low</div><div class="ch-hint" data-i18n="model_flash38low_hint">파트별 밸런스</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-flash-38-low" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('flash-38-low', this.value)"></label>
             </div>
-            <div class="radio-option" id="preset-flash-35-mid" onclick="selectModelPreset('flash-35-mid')">
+            <div class="radio-option" id="preset-flash-38-mid" onclick="selectModelPreset('flash-38-mid')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.5 Medium</div><div class="ch-hint" data-i18n="model_flash35mid_hint">깨끗한 톤, 분리도</div></div>
+              <div style="flex:1"><div class="radio-text">Flash 3.8 Medium</div><div class="ch-hint" data-i18n="model_flash38mid_hint">깨끗한 톤, 분리도</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-flash-38-mid" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('flash-38-mid', this.value)"></label>
             </div>
-            <div class="radio-option" id="preset-flash-35-high" onclick="selectModelPreset('flash-35-high')">
+            <div class="radio-option" id="preset-flash-38-high" onclick="selectModelPreset('flash-38-high')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div><div class="radio-text">Flash 3.5 High</div><div class="ch-hint" data-i18n="model_flash35high_hint">균형잡힌 톤</div></div>
+              <div style="flex:1"><div class="radio-text">Flash 3.8 High</div><div class="ch-hint" data-i18n="model_flash38high_hint">균형잡힌 톤</div></div>
+              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-flash-38-high" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('flash-38-high', this.value)"></label>
             </div>
           </div>
         </div>
@@ -1839,10 +1849,10 @@ const I18N = {
     advice_notice:'⚠️모든 조언은 라이브 PA 환경을 기준으로 제안됩니다',
     howl_title:'하울링 감지', howl_last:'마지막 하울링', howl_near:'부근', howl_at:'감지',
     settings_title:'설정',
-    model_flash31min_hint:'메인파트 마스킹 조언', model_flash31low_hint:'파트별 밸런스',
-    model_flash31mid_hint:'깨끗한 톤, 분리도', model_flash31high_hint:'균형잡힌 톤',
-    model_flash35min_hint:'메인파트 마스킹 조언', model_flash35low_hint:'파트별 밸런스',
-    model_flash35mid_hint:'깨끗한 톤, 분리도', model_flash35high_hint:'균형잡힌 톤',
+    model_lite35min_hint:'메인파트 마스킹 조언', model_lite35low_hint:'파트별 밸런스',
+    model_lite35mid_hint:'깨끗한 톤, 분리도', model_lite35high_hint:'균형잡힌 톤',
+    model_flash35min_hint:'메인파트 마스킹 조언', model_flash38low_hint:'파트별 밸런스',
+    model_flash38mid_hint:'깨끗한 톤, 분리도', model_flash38high_hint:'균형잡힌 톤',
     sec_device:'입력 장치', sec_model:'AI 모델', sec_api:'API 연결', sec_space:'공간 환경',
     sec_mix:'믹스 취향', sec_memo:'즉석 메모', sec_help:'도움말', sec_backup:'설정 백업',
     api_proxy:'기본 프록시 사용', api_proxy_hint:'proxy.dumpit.dev 경유 (기본값)',
@@ -1911,10 +1921,10 @@ const I18N = {
     advice_notice:'⚠️All advice is tailored for live PA environments',
     howl_title:'Feedback Detected', howl_last:'Last Feedback', howl_near:'around', howl_at:'detected',
     settings_title:'SETTINGS',
-    model_flash31min_hint:'Main part masking advice', model_flash31low_hint:'Per-part balance advice',
-    model_flash31mid_hint:'Clean tone & separation advice', model_flash31high_hint:'Balanced tone advice',
-    model_flash35min_hint:'Main part masking advice', model_flash35low_hint:'Per-part balance advice',
-    model_flash35mid_hint:'Clean tone & separation advice', model_flash35high_hint:'Balanced tone advice',
+    model_lite35min_hint:'Main part masking advice', model_lite35low_hint:'Per-part balance advice',
+    model_lite35mid_hint:'Clean tone & separation advice', model_lite35high_hint:'Balanced tone advice',
+    model_flash35min_hint:'Main part masking advice', model_flash38low_hint:'Per-part balance advice',
+    model_flash38mid_hint:'Clean tone & separation advice', model_flash38high_hint:'Balanced tone advice',
     sec_device:'Input Device', sec_model:'AI Model', sec_api:'API Connection', sec_space:'Venue',
     sec_mix:'Mix Style', sec_memo:'Session Notes', sec_help:'Help', sec_backup:'Backup',
     api_proxy:'Use Default Proxy', api_proxy_hint:'Via proxy.dumpit.dev (default)',
@@ -2055,7 +2065,8 @@ const state = {
   deviceId: 'default',
   devices: [],
   wakeLock: null,
-  modelPreset: 'flash-31-minimal',
+  modelPreset: 'lite-35-minimal',
+  modelTokens: JSON.parse(localStorage.getItem('model_tokens') || '{}'),
   useProxy: true,
   apiKey: '',
   issueHistory: [],
@@ -2070,15 +2081,20 @@ const BANDS = [20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,10
 const HOWL_SUSTAIN_FRAMES = 60;
 
 const MODEL_CONFIG = {
-  'flash-31-minimal': { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
-  'flash-31-low':     { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1400 },
-  'flash-31-mid':     { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 1800 },
-  'flash-31-high':    { model: 'gemini-3.1-flash-lite', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2500 },
-  'flash-35-minimal': { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 500  },
-  'flash-35-low':     { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 2400 },
-  'flash-35-mid':     { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 2800 },
-  'flash-35-high':    { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 3500 },
+  'lite-35-minimal':  { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 250  },
+  'lite-35-low':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1400 },
+  'lite-35-mid':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 1800 },
+  'lite-35-high':     { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2500 },
+  'flash-35-minimal': { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 500  }, // 3.8은 MINIMAL 미지원
+  'flash-38-low':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 2400 },
+  'flash-38-mid':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 2800 },
+  'flash-38-high':    { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 3500 },
 };
+const DEFAULT_PRESET = 'lite-35-minimal';
+// 테스트용 maxOutputTokens 오버라이드 (설정 화면에서 입력, 비우면 기본값)
+function getModelTokens(preset) {
+  return state.modelTokens[preset] || MODEL_CONFIG[preset].maxOutputTokens;
+}
 
 // ── STORAGE ──
 async function requestStoragePersist() {
@@ -3020,7 +3036,9 @@ ${t('ai_prompt')}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 35000);
     const useDirectApi = !state.useProxy && state.apiKey;
-    const cfg = MODEL_CONFIG[state.modelPreset] || MODEL_CONFIG['flash-31-minimal'];
+    const preset = MODEL_CONFIG[state.modelPreset] ? state.modelPreset : DEFAULT_PRESET;
+    const cfg = MODEL_CONFIG[preset];
+    const maxOutputTokens = getModelTokens(preset);
     const apiUrl = useDirectApi
       ? `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model}:generateContent?key=${state.apiKey}`
       : `https://proxy.dumpit.dev/v1beta/models/${cfg.model}:generateContent`;
@@ -3035,7 +3053,7 @@ ${t('ai_prompt')}`;
             {inline_data:{mime_type:AUDIO_GEMINI_MIME,data:base64}}
           ]}],
           generationConfig:{
-            maxOutputTokens: cfg.maxOutputTokens,
+            maxOutputTokens,
             temperature: 0.7,
             thinkingConfig: cfg.thinkingConfig,
           }
@@ -3045,6 +3063,7 @@ ${t('ai_prompt')}`;
     clearTimeout(timeout);
     const data = await response.json();
     if (data.error) throw new Error(data.error.message);
+    console.log('[tokens]', cfg.model, cfg.thinkingConfig.thinkingLevel, 'max', maxOutputTokens, data.usageMetadata, data.candidates?.[0]?.finishReason);
     const parts = data.candidates?.[0]?.content?.parts||[];
     const text = parts.filter(p=>p.text && !p.thought).map(p=>p.text).join('').trim();
     if (!text) throw new Error(t('err_empty'));
@@ -3153,6 +3172,8 @@ function renderSettings() {
     const active = state.modelPreset === preset;
     el.classList.toggle('selected', active);
     el.querySelector('.radio-dot-inner').style.display = active ? 'block' : 'none';
+    const tokenInput = document.getElementById(`tokens-${preset}`);
+    if (tokenInput) { tokenInput.value = getModelTokens(preset); tokenInput.placeholder = MODEL_CONFIG[preset].maxOutputTokens; }
   });
 
   renderDeviceSelect();
@@ -3164,6 +3185,13 @@ function renderSettings() {
 }
 function selectSource(src) { state.source=src; renderSettings(); }
 function selectModelPreset(preset) { state.modelPreset = preset; saveToStorage(); renderSettings(); }
+function setModelTokens(preset, value) {
+  const n = parseInt(value, 10);
+  if (n > 0 && n !== MODEL_CONFIG[preset].maxOutputTokens) state.modelTokens[preset] = n;
+  else delete state.modelTokens[preset];
+  localStorage.setItem('model_tokens', JSON.stringify(state.modelTokens));
+  renderSettings();
+}
 function selectApiMode(useProxy) {
   state.useProxy = useProxy;
   saveToStorage();
@@ -3201,6 +3229,7 @@ function exportSettings() {
   const data = {
     source: state.source,
     modelPreset: state.modelPreset,
+    modelTokens: state.modelTokens,
     apiKey: state.apiKey,
     spaceEnv: state.spaceEnv,
     spacePresets: state.spacePresets,
@@ -3227,6 +3256,7 @@ function importSettings(event) {
 
       if (data.source) state.source = data.source;
       if (data.modelPreset && MODEL_CONFIG[data.modelPreset]) state.modelPreset = data.modelPreset;
+      if (data.modelTokens && typeof data.modelTokens === 'object') { state.modelTokens = data.modelTokens; localStorage.setItem('model_tokens', JSON.stringify(state.modelTokens)); }
       if (data.apiKey) state.apiKey = data.apiKey;
       if (data.spaceEnv) { state.spaceEnv = { ...state.spaceEnv, ...data.spaceEnv }; localStorage.setItem('space_env', JSON.stringify(state.spaceEnv)); }
       if (Array.isArray(data.spacePresets)) { state.spacePresets = data.spacePresets; localStorage.setItem('space_presets', JSON.stringify(state.spacePresets)); }
