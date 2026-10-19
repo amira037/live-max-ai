@@ -97,7 +97,8 @@ const QUICK_SYSTEM_PROMPT = `You are a live PA sound engineer advisor.
 - Ignore any source not heard in this clip
 
 [OUTPUT]
-- First line: one positive summary sentence
+- Very first line: detected instruments/vocals, e.g. CHANNELS:Vocal,Kick,Bass (only channels actually heard; omit this line if nothing is detected)
+- Next line: one positive summary sentence
 - 1–3 actionable advice items. Always name the instrument.
 - Actionable: Precise dB values and specific EQ points, Q factors`.trim();
 
@@ -488,6 +489,20 @@ input[type=range] {
 .mic-btn.analyzing .mic-label { color:var(--blue); }
 
 .countdown { font-family:var(--font-display); font-size:var(--2xl); color:var(--danger); letter-spacing:0.05em; min-height:var(--2xl); line-height:1; }
+
+/* ── 감지 악기 태그 ── */
+.inst-tags { display:flex; flex-wrap:wrap; justify-content:center; gap:5px; max-width:min(100%, 520px); padding:0 12px; }
+.inst-tags:empty { display:none; }
+.inst-tag {
+  font-family:var(--font-mono); font-size:var(--xs); line-height:1.2;
+  padding:3px 9px; border-radius:99px; cursor:pointer; user-select:none;
+  border:1px solid var(--border2); color:var(--text); background:var(--surface2);
+  transition:all 0.15s;
+}
+.inst-tag.stale { opacity:0.45; }
+.inst-tag.selected { background:var(--accent); border-color:var(--accent); color:#000; opacity:1; }
+.inst-tag-clear { color:var(--muted2); background:transparent; border-style:dashed; }
+.inst-tag-clear:hover { color:var(--danger); border-color:var(--danger); }
 
 /* ── ADVICE PANE ── */
 .advice-pane {
@@ -1435,7 +1450,7 @@ input[type=range] {
         <!-- COMP row -->
         <div class="ctrl-row">
           <span class="ctrl-label">COMP</span>
-          <input type="range" id="comp-slider" min="0" max="100" value="40" oninput="setComp(this.value/100)">
+          <input type="range" id="comp-slider" min="0" max="100" value="0" oninput="setComp(this.value/100)">
           <button class="ctrl-rst" onclick="document.getElementById('comp-slider').value=0;setComp(0);">RST</button>
         </div>
         <!-- LSF row -->
@@ -1459,6 +1474,7 @@ input[type=range] {
 
       <!-- Mic button -->
       <div class="mic-wrap">
+        <div class="inst-tags" id="inst-tags"></div>
         <div style="display:flex;align-items:center;gap:clamp(10px,2vw,18px);">
           <input id="user-hint-input" type="text" maxlength="20" placeholder="무엇을 조언할까요?" data-i18n="hint_placeholder"
             style="width:clamp(90px,18vw,160px);background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:clamp(4px,0.8vw,7px) clamp(8px,1.2vw,12px);font-family:var(--font-mono);font-size:var(--xs);color:var(--fg1);outline:none;flex-shrink:0;"
@@ -1560,11 +1576,6 @@ input[type=range] {
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
               <div style="flex:1"><div class="radio-text">Flash-Lite 3.5 High</div><div class="ch-hint" data-i18n="model_lite35high_hint">균형잡힌 톤</div></div>
               <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-lite-35-high" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('lite-35-high', this.value)"></label>
-            </div>
-            <div class="radio-option" id="preset-flash-35-minimal" onclick="selectModelPreset('flash-35-minimal')">
-              <div class="radio-dot"><div class="radio-dot-inner"></div></div>
-              <div style="flex:1"><div class="radio-text">Flash 3.5 Minimal</div><div class="ch-hint" data-i18n="model_flash35min_hint">메인파트 마스킹 조언</div></div>
-              <label class="token-field" onclick="event.stopPropagation()"><span>max</span><input class="api-input token-input" id="tokens-flash-35-minimal" type="number" inputmode="numeric" min="1" step="50" onchange="setModelTokens('flash-35-minimal', this.value)"></label>
             </div>
             <div class="radio-option" id="preset-flash-38-low" onclick="selectModelPreset('flash-38-low')">
               <div class="radio-dot"><div class="radio-dot-inner"></div></div>
@@ -1844,6 +1855,7 @@ const I18N = {
     lamp_idle:'대기', lamp_active:'청음중', lamp_rec:'녹음중', lamp_analyze:'분석중', lamp_error:'오류',
     rec_mode_label:'녹음 방식',
     hint_placeholder:'무엇을 조언할까요?',
+    inst_clear:'✕ 클리어', inst_clear_title:'감지된 악기와 이전 분석 기록을 지웁니다',
     empty_text:'MaxAI 버튼을 눌러<br>5초 믹스를 분석해보세요',
     advice_title:'조언',
     advice_notice:'⚠️모든 조언은 라이브 PA 환경을 기준으로 제안됩니다',
@@ -1851,7 +1863,7 @@ const I18N = {
     settings_title:'설정',
     model_lite35min_hint:'메인파트 마스킹 조언', model_lite35low_hint:'파트별 밸런스',
     model_lite35mid_hint:'깨끗한 톤, 분리도', model_lite35high_hint:'균형잡힌 톤',
-    model_flash35min_hint:'메인파트 마스킹 조언', model_flash38low_hint:'파트별 밸런스',
+    model_flash38low_hint:'파트별 밸런스',
     model_flash38mid_hint:'깨끗한 톤, 분리도', model_flash38high_hint:'균형잡힌 톤',
     sec_device:'입력 장치', sec_model:'AI 모델', sec_api:'API 연결', sec_space:'공간 환경',
     sec_mix:'믹스 취향', sec_memo:'즉석 메모', sec_help:'도움말', sec_backup:'설정 백업',
@@ -1916,6 +1928,7 @@ const I18N = {
     lamp_idle:'IDLE', lamp_active:'LISTENING', lamp_rec:'RECORDING', lamp_analyze:'ANALYZING', lamp_error:'ERROR',
     rec_mode_label:'Rec Mode',
     hint_placeholder:'What to analyze?',
+    inst_clear:'✕ Clear', inst_clear_title:'Clear detected instruments and previous analysis history',
     empty_text:'Tap MAX AI to analyze<br>a 5-second mix',
     advice_title:'ADVICE',
     advice_notice:'⚠️All advice is tailored for live PA environments',
@@ -1923,7 +1936,7 @@ const I18N = {
     settings_title:'SETTINGS',
     model_lite35min_hint:'Main part masking advice', model_lite35low_hint:'Per-part balance advice',
     model_lite35mid_hint:'Clean tone & separation advice', model_lite35high_hint:'Balanced tone advice',
-    model_flash35min_hint:'Main part masking advice', model_flash38low_hint:'Per-part balance advice',
+    model_flash38low_hint:'Per-part balance advice',
     model_flash38mid_hint:'Clean tone & separation advice', model_flash38high_hint:'Balanced tone advice',
     sec_device:'Input Device', sec_model:'AI Model', sec_api:'API Connection', sec_space:'Venue',
     sec_mix:'Mix Style', sec_memo:'Session Notes', sec_help:'Help', sec_backup:'Backup',
@@ -2031,6 +2044,7 @@ function applyLang() {
     const cur = lampEl.dataset.lampState || 'idle';
     lampEl.textContent = L['lamp_' + cur] || lampEl.textContent;
   }
+  if (typeof renderInstTags === 'function') renderInstTags();
 }
 
 // ── STATE ──
@@ -2057,7 +2071,6 @@ const state = {
   analysisCount: 0,
   mediaRecorder: null,
   audioChunks: [],
-  howlingFrames: {},
   howlBarDismissed: false,
   agcOn: true,
   agcGain: 1.0,
@@ -2069,7 +2082,10 @@ const state = {
   modelTokens: JSON.parse(localStorage.getItem('model_tokens') || '{}'),
   useProxy: true,
   apiKey: '',
-  issueHistory: [],
+  issueHistory: [],      // { text, at }
+  detectedInst: [],      // { name, lastSeen } — 감지 순서 유지
+  selectedInst: new Set(),
+  lastInstNum: 0,        // 가장 최근에 악기가 감지된 분석 번호
   lang: localStorage.getItem('livemaxai_lang') || 'ko',
   analysisDepth:  localStorage.getItem('analysisDepth') || 'detail',
   quickUseSpace:  JSON.parse(localStorage.getItem('quickUseSpace')  ?? 'false'),
@@ -2078,14 +2094,12 @@ const state = {
 
 const PHONE_CORRECTION = [8,8,7,6,5,4,3,2,1,0,0,-1,-1,-1,-2,-2,-2,-2,-3,-3,-3,-3,-4,-4,-4,-4,-4,-5,-5,-5,-5,-5];
 const BANDS = [20,25,31.5,40,50,63,80,100,125,160,200,250,315,400,500,630,800,1000,1250,1600,2000,2500,3150,4000,5000,6300,8000,10000,12500,16000,20000,22000];
-const HOWL_SUSTAIN_FRAMES = 60;
 
 const MODEL_CONFIG = {
   'lite-35-minimal':  { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 400  },
   'lite-35-low':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1000 },
   'lite-35-mid':      { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 2500 },
   'lite-35-high':     { model: 'gemini-3.5-flash-lite', thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 2800 },
-  'flash-35-minimal': { model: 'gemini-3.5-flash',      thinkingConfig: { thinkingLevel: 'MINIMAL' }, maxOutputTokens: 400  }, // 3.8은 MINIMAL 미지원
   'flash-38-low':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'LOW' },     maxOutputTokens: 1000 },
   'flash-38-mid':     { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'MEDIUM' },  maxOutputTokens: 2600 },
   'flash-38-high':    { model: 'gemini-3.8-flash',      thinkingConfig: { thinkingLevel: 'HIGH' },    maxOutputTokens: 3500 },
@@ -2159,7 +2173,7 @@ function setLamp(mode, labelKey) {
 async function initAudio(deviceId, existingStream) {
   try {
     if (state.micStream) state.micStream.getTracks().forEach(t => t.stop());
-    if (state.audioCtx)  { await state.audioCtx.close(); state.audioCtx = null; state.analyser = null; state.compressor = null; }
+    if (state.audioCtx)  { await state.audioCtx.close(); state.audioCtx = null; state.analyser = null; state.howlAnalyser = null; state.compressor = null; }
 
     let stream;
     if (existingStream) {
@@ -2195,6 +2209,19 @@ async function initAudio(deviceId, existingStream) {
     src.connect(state.compressor);
     state.compressor.connect(state.lowshelf);
     state.lowshelf.connect(state.analyser);
+
+    // 하울링 감지 전용 — COMP/LSF/AGC 영향 없는 원신호, 고해상도 FFT, 0dBFS까지 측정
+    state.howlAnalyser = state.audioCtx.createAnalyser();
+    state.howlAnalyser.fftSize = 8192;
+    state.howlAnalyser.smoothingTimeConstant = 0.5;
+    state.howlAnalyser.minDecibels = -110;
+    state.howlAnalyser.maxDecibels = 0;
+    src.connect(state.howlAnalyser);
+    howlTracks = [];
+
+    // 장치 변경 시 노드가 새로 만들어지므로 슬라이더 값과 동기화
+    setComp((document.getElementById('comp-slider')?.value || 0) / 100);
+    setLowshelf(document.getElementById('lsf-slider')?.value || 0);
 
     setLamp('active', 'active');
     await acquireWakeLock();
@@ -2370,7 +2397,8 @@ function setComp(val) {
   if (!state.compressor) return;
   const v = parseFloat(val);
   if (v <= 0.01) { state.compressor.threshold.value = 0; state.compressor.ratio.value = 1; }
-  else { state.compressor.threshold.value = -(12 + v * 38); state.compressor.ratio.value = 2 + v * 18; }
+  // 40% ≈ -18dB 4:1, 100% = -36dB 8:1 (이전: 40% ≈ -27dB 9:1, 100% = -50dB 20:1)
+  else { state.compressor.threshold.value = -(6 + v * 30); state.compressor.ratio.value = 1.5 + v * 6.5; }
 }
 // ── DRY / WET ──
 function toggleDryWet() {
@@ -2550,28 +2578,85 @@ function drawMeter() {
     ctx.fillStyle = color; ctx.fillRect(x,H-barH,bw,barH);
   });
 
-  detectHowling(bandVals, rawVals);
+  detectHowling();
 }
 
 // ── HOWLING ──
-function detectHowling(bandVals, rawVals) {
-  const n = bandVals.length;
-  let foundIdx = -1;
-  for (let i = 2; i < n-2; i++) {
-    const center = rawVals[i];
-    if (center < 0.35) { state.howlingFrames[i] = Math.max(0,(state.howlingFrames[i]||0)-2); continue; }
-    const neighbors = (rawVals[i-2]+rawVals[i-1]+rawVals[i+1]+rawVals[i+2])/4;
-    if (neighbors < 0.01) continue;
-    if (center/neighbors > 4.0) {
-      state.howlingFrames[i] = (state.howlingFrames[i]||0)+1;
-      if (state.howlingFrames[i] >= HOWL_SUSTAIN_FRAMES) { foundIdx = i; break; }
-    } else {
-      state.howlingFrames[i] = Math.max(0,(state.howlingFrames[i]||0)-2);
-    }
+// 원신호 dB 스펙트럼에서 "좁고, 주변보다 크게 튀고, 주파수가 고정된 채 지속되는" 피크를 찾는다.
+const HOWL_SUSTAIN_MS     = 1000;  // 이 시간 이상 같은 주파수에 머물면 하울링
+const HOWL_MIN_DB         = -75;   // 피크 절대 레벨 하한 (dBFS)
+const HOWL_PROMINENCE_DB  = 20;    // 주변(±1/6 옥타브) 평균 대비 돌출량
+const HOWL_HARMONIC_DB    = 15;    // 배음/기음이 이 범위 안에 있으면 악기 음으로 간주
+const HOWL_F_MIN = 80, HOWL_F_MAX = 12000;
+let howlBuf = null, howlPrefix = null, howlTracks = [], howlLastT = 0;
+
+function howlProminence(i) {
+  const n = howlBuf.length;
+  const w = Math.max(8, Math.round(i * 0.12)), inner = 3; // inner: 피크 자체(메인로브) 제외
+  const a = Math.max(0, i - w), b = Math.min(n, i + w + 1);
+  const ia = Math.max(0, i - inner), ib = Math.min(n, i + inner + 1);
+  const sum = (howlPrefix[b] - howlPrefix[a]) - (howlPrefix[ib] - howlPrefix[ia]);
+  const cnt = (b - a) - (ib - ia);
+  return howlBuf[i] - sum / cnt;
+}
+
+// f/2, f/3, 2f, 3f 근처에 비슷한 크기의 뚜렷한 피크가 있으면 악기(배음 구조)로 판단
+function howlHasHarmonics(i) {
+  const n = howlBuf.length;
+  for (const r of [0.5, 1/3, 2, 3]) {
+    const c = Math.round(i * r);
+    if (c < 4 || c >= n - 4) continue;
+    let j = c;
+    for (let k = c - 2; k <= c + 2; k++) if (howlBuf[k] > howlBuf[j]) j = k;
+    if (howlBuf[j] >= howlBuf[i] - HOWL_HARMONIC_DB && howlProminence(j) >= 12) return true;
   }
-  if (foundIdx >= 0) {
-    const freq = BANDS[foundIdx];
-    const freqStr = freq >= 1000 ? (freq/1000).toFixed(1)+'kHz' : freq+'Hz';
+  return false;
+}
+
+function detectHowling() {
+  const an = state.howlAnalyser;
+  if (!an) return;
+  const n = an.frequencyBinCount;
+  if (!howlBuf || howlBuf.length !== n) { howlBuf = new Float32Array(n); howlPrefix = new Float64Array(n + 1); }
+  an.getFloatFrequencyData(howlBuf);
+  for (let i = 0; i < n; i++) {
+    if (!(howlBuf[i] > -110)) howlBuf[i] = -110; // -Infinity 처리
+    howlPrefix[i + 1] = howlPrefix[i] + howlBuf[i];
+  }
+  const now = performance.now();
+  const dt = Math.min(now - (howlLastT || now), 100);
+  howlLastT = now;
+
+  const binHz = state.audioCtx.sampleRate / an.fftSize;
+  const lo = Math.max(4, Math.floor(HOWL_F_MIN / binHz));
+  const hi = Math.min(n - 4, Math.ceil(HOWL_F_MAX / binHz));
+  const cands = [];
+  for (let i = lo; i < hi; i++) {
+    const v = howlBuf[i];
+    if (v < HOWL_MIN_DB || v < howlBuf[i - 1] || v <= howlBuf[i + 1]) continue; // 로컬 최대만
+    if (howlProminence(i) < HOWL_PROMINENCE_DB) continue;
+    if (howlHasHarmonics(i)) continue;
+    cands.push(i);
+  }
+
+  // 주파수 고정 여부 추적 (±1 bin ≈ ±6Hz 이내로 머물러야 누적)
+  howlTracks.forEach(tr => tr.hit = false);
+  cands.forEach(i => {
+    const tr = howlTracks.find(tr => Math.abs(tr.bin - i) <= 1);
+    if (tr) { if (!tr.hit) { tr.ms += dt; tr.bin = i; tr.hit = true; } }
+    else howlTracks.push({ bin: i, ms: dt, hit: true });
+  });
+  howlTracks.forEach(tr => { if (!tr.hit) tr.ms -= dt * 2; });
+  howlTracks = howlTracks.filter(tr => tr.ms > 0);
+  if (howlTracks.length > 40) howlTracks = howlTracks.sort((a, b) => b.ms - a.ms).slice(0, 40);
+
+  const found = howlTracks
+    .filter(tr => tr.ms >= HOWL_SUSTAIN_MS)
+    .sort((a, b) => howlBuf[b.bin] - howlBuf[a.bin])[0];
+
+  if (found) {
+    const freq = found.bin * binHz;
+    const freqStr = freq >= 1000 ? (freq/1000).toFixed(2)+'kHz' : Math.round(freq)+'Hz';
     if (!state.howlBarDismissed) showHowlBar(freqStr);
   } else {
     const bar = document.getElementById('howl-bar');
@@ -2999,8 +3084,9 @@ async function analyzeWithGemini(audioBlob, num) {
         }
       }
 
+      pruneIssueHistory();
       historySection = state.issueHistory.length
-        ? 'ALREADY ADVISED — Do NOT repeat or rephrase any of these suggestions. Find a different problem:\n' + state.issueHistory.join('\n')
+        ? 'ALREADY ADVISED on EARLIER clips — Do NOT repeat or rephrase these. The program may have changed since (e.g. band → speech/sermon): never mention an instrument from this list unless it is clearly audible in THIS clip.\n' + state.issueHistory.map(h => h.text).join('\n')
         : '';
 
       soloNote = state.soloMode
@@ -3018,9 +3104,11 @@ async function analyzeWithGemini(audioBlob, num) {
     const memoSection = instantMemo ? '즉석 메모: ' + instantMemo : '';
 
     // 공통 — 사용자 힌트 (퀵은 speech 모드 무시)
-    const userHint = document.getElementById('user-hint-input')?.value.trim();
+    // 사용자 힌트 + 선택된 악기 태그
+    const typedHint = document.getElementById('user-hint-input')?.value.trim();
+    const userHint = [...state.selectedInst, typedHint].filter(Boolean).join(', ');
     const hintSection = userHint
-      ? `[User focus — OVERRIDE PRIORITY]\nThe user specifically wants advice on: ${userHint}\nEven if this element sounds quiet or subtle in the clip, do NOT ignore it. Analyze and advise on it regardless of volume. This overrides the "ignore any source not heard" constraint.`
+      ? `[User focus — OVERRIDE PRIORITY]\nThe user specifically wants advice on: ${userHint}\nCenter the whole analysis on this element (its level vs. the mix, tone, masking with other parts). Even if it sounds quiet or subtle in the clip, do NOT ignore it. Analyze and advise on it regardless of volume. This overrides the "ignore any source not heard" constraint.`
       : (!isQuick && state.analysisMode === 'speech')
         ? '[User focus] Speech intelligibility is the absolute priority. Focus on vocal clarity, intelligibility, and any frequency masking of speech.'
         : '';
@@ -3095,9 +3183,10 @@ ${t('ai_prompt')}`;
       const hintTag = userHint ? `(힌트: ${userHint}) ` : state.analysisMode !== 'mix' ? `(${state.analysisMode}) ` : '';
       const solTag = result.solutions.length ? result.solutions.slice(0,2).join(' / ') : '';
       const historyEntry = `${chTag}${hintTag}${result.problem}${solTag ? ' → ' + solTag : ''}`;
-      state.issueHistory.push(historyEntry);
+      state.issueHistory.push({ text: historyEntry, at: Date.now() });
       if (state.issueHistory.length > 3) state.issueHistory.shift();
     }
+    addDetectedInst(channels, num);
 
     if (statusEl) statusEl.remove();
     renderAnalysisCard(groupEl, result);
@@ -3108,6 +3197,58 @@ ${t('ai_prompt')}`;
       if (dots) dots.remove();
     }
   }
+}
+
+// ── 히스토리 / 감지 악기 태그 ──
+const HISTORY_TTL_MS = 3 * 60 * 1000; // 3분 지난 조언은 프롬프트에서 제외 (밴드 → 설교 등 전환 대응)
+function pruneIssueHistory() {
+  const cutoff = Date.now() - HISTORY_TTL_MS;
+  state.issueHistory = state.issueHistory.filter(h => h.at >= cutoff);
+}
+
+function addDetectedInst(channels, num) {
+  channels.forEach(name => {
+    const hit = state.detectedInst.find(d => d.name.toLowerCase() === name.toLowerCase());
+    if (hit) hit.lastSeen = num;
+    else state.detectedInst.push({ name, lastSeen: num });
+  });
+  if (channels.length) state.lastInstNum = num;
+  renderInstTags();
+}
+
+function toggleInstTag(name) {
+  if (state.selectedInst.has(name)) state.selectedInst.delete(name);
+  else state.selectedInst.add(name);
+  renderInstTags();
+}
+
+function clearDetectedInst() {
+  state.detectedInst = [];
+  state.selectedInst.clear();
+  state.issueHistory = [];
+  renderInstTags();
+}
+
+function renderInstTags() {
+  const wrap = document.getElementById('inst-tags');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  if (!state.detectedInst.length) return;
+  state.detectedInst.forEach(({ name, lastSeen }) => {
+    const tag = document.createElement('span');
+    tag.className = 'inst-tag'
+      + (state.selectedInst.has(name) ? ' selected' : '')
+      + (lastSeen !== state.lastInstNum ? ' stale' : '');
+    tag.textContent = name;
+    tag.onclick = () => toggleInstTag(name);
+    wrap.appendChild(tag);
+  });
+  const clr = document.createElement('span');
+  clr.className = 'inst-tag inst-tag-clear';
+  clr.textContent = t('inst_clear');
+  clr.title = t('inst_clear_title');
+  clr.onclick = clearDetectedInst;
+  wrap.appendChild(clr);
 }
 
 function animateMixScore(el, target) {
