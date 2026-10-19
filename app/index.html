@@ -191,8 +191,11 @@ function buildMixPrompt(mixPref) {
     lines.push('');
   }
 
-  // 믹스 취향 OFF — 시스템 프롬프트 + 행사 유형만
-  if (typeof state !== 'undefined' && state.mixPrefOn === false) return lines.join('\n');
+  // 믹스 취향 OFF — 시스템 프롬프트 + 행사 유형 + (음악이면) 중립 한 줄
+  if (typeof state !== 'undefined' && state.mixPrefOn === false) {
+    if (mode !== 'speech') lines.push('[Mix preference] Neutral — music mix unless the clip is talking only.');
+    return lines.join('\n');
+  }
 
   lines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
 
