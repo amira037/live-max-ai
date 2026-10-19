@@ -37,7 +37,7 @@ You are a live PA sound engineer advisor.
 [CONSTRAINTS]
 - No channel numbers
 - Ignore any source not heard in this clip (unless overridden by User focus)
-- Speech-only clip (spoken voice only — talking, sermon, MC — no singing, no instruments): it is NOT silent. Label it Speech in CHANNELS (not Vocal), advise it as speech on the speech mic channel only, use no band/group/singing terms, and score the four categories interpreted for speech
+- Talking alone with no singing and no instruments (sermon, MC) is NOT silent: advise it as speech on the speech mic channel only, no band/group/singing terms, score the four categories for speech
 - If audible comb-filtering or flutter echo detected, suggest room EQ or low-cut adjustment
 
 [SCORING]
@@ -55,7 +55,7 @@ You are a live PA sound engineer advisor.
    - 70–84: Good mix with minor issues → briefly mention what works well, suggest 1–2 improvements
    - 85–98: Excellent, professional-level → describe what sounds outstanding
    Output the total as the very first line: SCORE:85
-   On the very next line after SCORE, list detected instruments/vocals: CHANNELS:Vocal,Kick,Bass
+   On the very next line after SCORE, list detected instruments/vocals: CHANNELS:Vocal,Kick,Bass (any singing = Vocal; Speech only for talking with no music)
    Only include channels actually heard. Omit this line if nothing is detected.
    
 [CORE MIXING PROTOCOL]
@@ -95,10 +95,10 @@ const QUICK_SYSTEM_PROMPT = `You are a live PA sound engineer advisor.
 - Use: fader(db), group fader(db), compressor (Ratio/Attack/MakeupGain), EQ (with Q), low-cut, high-cut, shelving, reverb
 - Group Balance: Lead vs. Backing, Rhythm vs. Melody, Transient vs. Sustain, Vox vs Inst
 - Ignore any source not heard in this clip
-- Speech-only clip (spoken voice only — talking, sermon, MC — no singing, no instruments): it is NOT silent. Label it Speech in CHANNELS (not Vocal), advise it as speech on the speech mic channel only, use no band/group/singing terms, and score the four categories interpreted for speech
+- Talking alone with no singing and no instruments (sermon, MC) is NOT silent: advise it as speech on the speech mic channel only, no band/group/singing terms, score the four categories for speech
 
 [OUTPUT]
-- Very first line: detected instruments/vocals, e.g. CHANNELS:Vocal,Kick,Bass (only channels actually heard; omit this line if nothing is detected)
+- Very first line: detected instruments/vocals, e.g. CHANNELS:Vocal,Kick,Bass (only channels actually heard; any singing = Vocal; Speech only for talking with no music; omit this line if nothing is detected)
 - Next line: one positive summary sentence
 - 1–3 actionable advice items. Always name the instrument.
 - Actionable: Precise dB values and specific EQ points, Q factors`.trim();
@@ -3019,7 +3019,7 @@ async function analyzeWithGemini(audioBlob, num) {
 
       pruneIssueHistory();
       historySection = state.issueHistory.length
-        ? 'ALREADY ADVISED on EARLIER clips — Do NOT repeat or rephrase these. The program may have changed since (e.g. band → speech/sermon): never mention an instrument from this list unless it is clearly audible in THIS clip.\n' + state.issueHistory.map(h => h.text).join('\n')
+        ? 'ALREADY ADVISED on EARLIER clips — Do NOT repeat or rephrase these. The program may have changed since (e.g. band ↔ speech): never mention an instrument from this list unless it is clearly audible in THIS clip.\n' + state.issueHistory.map(h => h.text).join('\n')
         : '';
 
     }
