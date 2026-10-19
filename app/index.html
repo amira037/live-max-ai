@@ -37,7 +37,7 @@ You are a live PA sound engineer advisor.
 [CONSTRAINTS]
 - No channel numbers
 - Ignore any source not heard in this clip (unless overridden by User focus)
-- If silent: ask for cleaner signal
+- Speech-only clips (talking, sermon, MC, no music) are NOT silent: analyze them for speech intelligibility
 - If audible comb-filtering or flutter echo detected, suggest room EQ or low-cut adjustment
 
 [SCORING]
@@ -190,6 +190,9 @@ function buildMixPrompt(mixPref) {
     lines.push(modePrompt);
     lines.push('');
   }
+
+  // 믹스 취향 OFF — 시스템 프롬프트 + 행사 유형만
+  if (typeof state !== 'undefined' && state.mixPrefOn === false) return lines.join('\n');
 
   lines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
 
@@ -501,6 +504,8 @@ input[type=range] {
 }
 .inst-tag.stale { opacity:0.45; }
 .inst-tag.selected { background:var(--accent); border-color:var(--accent); color:#000; opacity:1; }
+.inst-tag-balance { color:var(--blue); border-color:var(--blue); background:rgba(77,166,255,0.08); }
+.inst-tag-balance.selected { background:var(--blue); border-color:var(--blue); color:#000; }
 .inst-tag-clear { color:var(--muted2); background:transparent; border-style:dashed; }
 .inst-tag-clear:hover { color:var(--danger); border-color:var(--danger); }
 
@@ -1688,8 +1693,14 @@ input[type=range] {
 
       <!-- ▶ 믹스 취향 -->
       <div class="setting-section" id="setting-section-mix">
-        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_mix">믹스 취향</span><span class="acc-arrow">▶</span></div>
-        <div class="acc-body">
+        <div class="acc-title" onclick="toggleAcc(this)">
+          <span data-i18n="sec_mix">믹스 취향</span>
+          <span style="display:flex;align-items:center;gap:10px;">
+            <span id="mixpref-toggle" onclick="event.stopPropagation();toggleMixPrefOn()" style="padding:3px 12px;border-radius:99px;border:1px solid var(--border2);font-family:var(--font-mono);font-size:var(--xs);letter-spacing:0;cursor:pointer;transition:all 0.2s;">ON</span>
+            <span class="acc-arrow">▶</span>
+          </span>
+        </div>
+        <div class="acc-body" id="mixpref-body">
           <div class="seg-row">
             <div class="seg-label" data-i18n="mix_type_label">행사 유형</div>
             <div class="seg-group" id="seg-mix-type">
@@ -1855,6 +1866,8 @@ const I18N = {
     lamp_idle:'대기', lamp_active:'청음중', lamp_rec:'녹음중', lamp_analyze:'분석중', lamp_error:'오류',
     rec_mode_label:'녹음 방식',
     hint_placeholder:'무엇을 조언할까요?',
+    quiet_env:'조용한 환경이에요 🎧 믹스를 틀고 눌러주세요!',
+    mixpref_toggle_title:'OFF: 믹스 취향을 AI에 보내지 않음 (행사 유형은 유지)',
     inst_clear:'✕ 클리어', inst_clear_title:'감지된 악기와 이전 분석 기록을 지웁니다',
     empty_text:'MaxAI 버튼을 눌러<br>5초 믹스를 분석해보세요',
     advice_title:'조언',
@@ -1918,7 +1931,7 @@ const I18N = {
     ai_prompt:`첨부된 5초 오디오를 듣고 믹스 엔지니어에게 조언해주세요.
 
 규칙:
-- 조용하거나 악기,보컬 모두 감지되지 않으면: "조용한 환경이에요 🎧 믹스를 틀고 눌러주세요!"
+- 말소리·노래·악기가 전혀 없고 방 소음뿐일 때만: "조용한 환경이에요 🎧 믹스를 틀고 눌러주세요!" (말소리만 있어도 정상 분석)
 - 첫 줄: 긍정형 한 줄 요약 (예: "보컬을 살려볼까요?")
 - 둘째 줄부터: 구체적 액션 1~3개 (예: "💡 보컬 +2dB", "💡 킥 80Hz -1.5dB")
 - 전체 3~4줄 이내, 간결하게
@@ -1928,6 +1941,8 @@ const I18N = {
     lamp_idle:'IDLE', lamp_active:'LISTENING', lamp_rec:'RECORDING', lamp_analyze:'ANALYZING', lamp_error:'ERROR',
     rec_mode_label:'Rec Mode',
     hint_placeholder:'What to analyze?',
+    quiet_env:'Quiet environment 🎧 Play the mix and press again!',
+    mixpref_toggle_title:'OFF: mix style is not sent to the AI (event type still applies)',
     inst_clear:'✕ Clear', inst_clear_title:'Clear detected instruments and previous analysis history',
     empty_text:'Tap MAX AI to analyze<br>a 5-second mix',
     advice_title:'ADVICE',
@@ -1991,7 +2006,7 @@ const I18N = {
     ai_prompt:`Listen to the attached 5-second audio and advise the mix engineer.
 
 Rules:
-- If quiet or no instruments/vocals detected: "Quiet environment 🎧 Play the mix and press again!"
+- Only if there is no speech, singing, or instrument at all (room noise only): "Quiet environment 🎧 Play the mix and press again!" (speech alone must be analyzed normally)
 - First line: one positive summary (e.g. "Let's bring out the vocals!")
 - Following lines: 1–3 specific actions (e.g. "💡 Vocals +2dB", "💡 Kick 80Hz -1.5dB")
 - Keep to 3–4 lines total, concise
@@ -2085,11 +2100,13 @@ const state = {
   issueHistory: [],      // { text, at }
   detectedInst: [],      // { name, lastSeen } — 감지 순서 유지
   selectedInst: new Set(),
-  lastInstNum: 0,        // 가장 최근에 악기가 감지된 분석 번호
+  lastInstNum: 0,
+  balanceSel: false,     // ⚖ Balance 태그 선택 여부        // 가장 최근에 악기가 감지된 분석 번호
   lang: localStorage.getItem('livemaxai_lang') || 'ko',
   analysisDepth:  localStorage.getItem('analysisDepth') || 'detail',
   quickUseSpace:  JSON.parse(localStorage.getItem('quickUseSpace')  ?? 'false'),
   quickUseMixPref: JSON.parse(localStorage.getItem('quickUseMixPref') ?? 'false'),
+  mixPrefOn:      JSON.parse(localStorage.getItem('mixPrefOn') ?? 'true'), // OFF면 믹스 취향 문구를 AI에 보내지 않음
 };
 
 const PHONE_CORRECTION = [8,8,7,6,5,4,3,2,1,0,0,-1,-1,-1,-2,-2,-2,-2,-3,-3,-3,-3,-4,-4,-4,-4,-4,-5,-5,-5,-5,-5];
@@ -2472,6 +2489,26 @@ function toggleQuickMixPref() {
   state.quickUseMixPref = !state.quickUseMixPref;
   localStorage.setItem('quickUseMixPref', JSON.stringify(state.quickUseMixPref));
   renderQuickModeSettings();
+}
+
+function toggleMixPrefOn() {
+  state.mixPrefOn = !state.mixPrefOn;
+  localStorage.setItem('mixPrefOn', JSON.stringify(state.mixPrefOn));
+  renderMixPrefToggle();
+}
+
+function renderMixPrefToggle() {
+  const el = document.getElementById('mixpref-toggle');
+  const body = document.getElementById('mixpref-body');
+  const on = state.mixPrefOn;
+  if (el) {
+    el.textContent      = on ? 'ON' : 'OFF';
+    el.style.background = on ? 'var(--accent)' : 'transparent';
+    el.style.color      = on ? '#000' : 'var(--muted2)';
+    el.title = t('mixpref_toggle_title');
+  }
+  // OFF여도 행사 유형(음악/스피치)은 계속 적용되므로 첫 줄은 그대로, 나머지만 흐리게
+  if (body) [...body.children].slice(1).forEach(c => { c.style.opacity = on ? '' : '0.35'; });
 }
 
 function renderQuickModeSettings() {
@@ -3032,7 +3069,7 @@ async function analyzeWithGemini(audioBlob, num) {
     if (isQuick) {
       // ── 퀵 모드 ──
       mixSection = QUICK_SYSTEM_PROMPT + '\n' + langLine;
-      if (state.quickUseMixPref) {
+      if (state.quickUseMixPref && state.mixPrefOn) {
         mixSection += '\n' + buildMixPrefLines(state.mixPref);
       }
       if (state.quickUseSpace) {
@@ -3052,11 +3089,13 @@ async function analyzeWithGemini(audioBlob, num) {
       // ── 디테일 모드 (기존 로직 100% 그대로) ──
       if (state.soloMode) {
         const soloLines = [SYSTEM_PROMPT, ''];
-        soloLines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
-        const density = MIX_PROMPTS.soundDensity[state.mixPref.density];
-        if (density) soloLines.push(`Sound density: ${density}`);
-        const bf = MIX_PROMPTS.bassFeeling[state.mixPref.lowFeel];
-        if (bf) soloLines.push(`Low end: ${bf}`);
+        if (state.mixPrefOn) {
+          soloLines.push('[Mix preference — advise according to these guidelines. Never violate these instructions.]');
+          const density = MIX_PROMPTS.soundDensity[state.mixPref.density];
+          if (density) soloLines.push(`Sound density: ${density}`);
+          const bf = MIX_PROMPTS.bassFeeling[state.mixPref.lowFeel];
+          if (bf) soloLines.push(`Low end: ${bf}`);
+        }
         mixSection = soloLines.filter(l => l !== undefined).join('\n');
       } else {
         mixSection = buildMixPrompt(state.mixPref);
@@ -3106,8 +3145,11 @@ async function analyzeWithGemini(audioBlob, num) {
     // 공통 — 사용자 힌트 (퀵은 speech 모드 무시)
     // 사용자 힌트 + 선택된 악기 태그
     const typedHint = document.getElementById('user-hint-input')?.value.trim();
-    const userHint = [...state.selectedInst, typedHint].filter(Boolean).join(', ');
-    const hintSection = userHint
+    const focusInst = [...state.selectedInst];
+    const userHint = [state.balanceSel ? 'Balance' : '', ...focusInst, typedHint].filter(Boolean).join(', ');
+    const hintSection = state.balanceSel
+      ? buildBalanceFocus(focusInst, typedHint)
+      : userHint
       ? `[User focus — OVERRIDE PRIORITY]\nThe user specifically wants advice on: ${userHint}\nCenter the whole analysis on this element (its level vs. the mix, tone, masking with other parts). Even if it sounds quiet or subtle in the clip, do NOT ignore it. Analyze and advise on it regardless of volume. This overrides the "ignore any source not heard" constraint.`
       : (!isQuick && state.analysisMode === 'speech')
         ? '[User focus] Speech intelligibility is the absolute priority. Focus on vocal clarity, intelligibility, and any frequency masking of speech.'
@@ -3115,7 +3157,7 @@ async function analyzeWithGemini(audioBlob, num) {
 
     const contextBlock = [mixSection, spaceSection, sourceInfo, memoSection, hintSection, historySection].filter(Boolean).join('\n');
 
-    const silenceNote = '\n: the clip is completely silent with zero musical content, output: SILENT';
+    const silenceNote = '\nOnly if the clip has no speech, no singing and no instruments at all (room noise only), output exactly: SILENT. Speech or talking alone is NOT silent — analyze it. Quiet but audible sources are NOT silent.';
 
     const prompt = `${contextBlock}${soloNote}${silenceNote}
 
@@ -3216,6 +3258,26 @@ function addDetectedInst(channels, num) {
   renderInstTags();
 }
 
+// Balance 태그: 레벨 밸런스 위주 점검 (선택된 악기가 있으면 그 기준으로 비교)
+function buildBalanceFocus(insts, typedHint) {
+  const lines = ['[User focus — BALANCE CHECK — OVERRIDE PRIORITY]'];
+  if (insts.length === 0) {
+    lines.push('Check the overall level balance of everything audible. First judge the vocal group vs. the accompaniment (band/instrument group) ratio. Then rank the audible elements from loudest to quietest and point out which one is buried or sticking out.');
+  } else if (insts.length === 1) {
+    lines.push(`Check the balance of ${insts[0]} against everything else in the mix: is it buried, sitting right, or too loud? Even if it sounds quiet, do NOT ignore it.`);
+  } else {
+    lines.push(`Compare the relative level balance between: ${insts.join(', ')}. Say which one is louder or buried and by roughly how much. Even if one sounds quiet, do NOT ignore it.`);
+  }
+  lines.push('Advise mainly with fader / group fader moves in dB. Give EQ or tone advice only when masking clearly prevents an element from being heard.');
+  if (typedHint) lines.push(`Additional user note: ${typedHint}`);
+  return lines.join('\n');
+}
+
+function toggleBalanceTag() {
+  state.balanceSel = !state.balanceSel;
+  renderInstTags();
+}
+
 function toggleInstTag(name) {
   if (state.selectedInst.has(name)) state.selectedInst.delete(name);
   else state.selectedInst.add(name);
@@ -3225,6 +3287,7 @@ function toggleInstTag(name) {
 function clearDetectedInst() {
   state.detectedInst = [];
   state.selectedInst.clear();
+  state.balanceSel = false;
   state.issueHistory = [];
   renderInstTags();
 }
@@ -3234,6 +3297,16 @@ function renderInstTags() {
   if (!wrap) return;
   wrap.innerHTML = '';
   if (!state.detectedInst.length) return;
+  const currentCount = state.detectedInst.filter(d => d.lastSeen === state.lastInstNum).length;
+  if (currentCount >= 2) {
+    const bal = document.createElement('span');
+    bal.className = 'inst-tag inst-tag-balance' + (state.balanceSel ? ' selected' : '');
+    bal.textContent = '⚖ Balance';
+    bal.onclick = toggleBalanceTag;
+    wrap.appendChild(bal);
+  } else {
+    state.balanceSel = false; // 숨겨진 상태로 선택이 남지 않게
+  }
   state.detectedInst.forEach(({ name, lastSeen }) => {
     const tag = document.createElement('span');
     tag.className = 'inst-tag'
@@ -3321,6 +3394,7 @@ function renderSettings() {
   renderApiMode();
   renderSpaceEnv();
   renderMixPref();
+  renderMixPrefToggle();
   renderMemoPresets();
   renderQuickModeSettings();
 }
