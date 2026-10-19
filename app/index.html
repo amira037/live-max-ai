@@ -3159,7 +3159,16 @@ async function analyzeWithGemini(audioBlob, num) {
 
     const silenceNote = '\nOnly if the clip has no speech, no singing and no instruments at all (room noise only), output exactly: SILENT. Speech or talking alone is NOT silent — analyze it. Quiet but audible sources are NOT silent.';
 
-    const prompt = `${contextBlock}${soloNote}${silenceNote}
+    // 말소리만 있는 클립 → 스피치 기준으로 자동 전환 (모드/믹스 취향과 무관하게 항상 적용)
+    const speechOnlyNote = `
+[Speech-only clips — overrides the band protocol and mix preferences]
+If the ONLY source in this clip is spoken voice (talking, sermon, MC, announcement — no singing, no instruments):
+- In CHANNELS, label it Speech (never Vocal).
+- Evaluate and advise it as speech, using your own judgment. Advise only on the speech mic channel.
+- Do NOT use band or singing terms: no group balance, no "vocal group", no lyrics, no instruments that are not heard.
+- Score with the same four categories, interpreted for speech.`;
+
+    const prompt = `${contextBlock}${soloNote}${silenceNote}${speechOnlyNote}
 
 ${t('ai_prompt')}`;
 
