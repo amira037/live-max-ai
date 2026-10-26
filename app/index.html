@@ -82,7 +82,7 @@ Bass: 50~60ms attack / 150~300ms release
 [OUTPUT]
 - First line: one positive summary sentence
 - 1–3 actionable advice items. Always name the instrument.
-- Each advice item: action + short reason why (what you heard)
+- Each advice item: one natural sentence — the action and what it improves
 - Direct Only: No scenario naming.
 - Actionable: Precise dB values and specific EQ points, Q factors
 - No repeated or rephrased issues
@@ -102,7 +102,7 @@ const QUICK_SYSTEM_PROMPT = `You are a live PA sound engineer advisor.
 - Very first line: detected instruments/vocals, e.g. CHANNELS:Vocal,Kick,Bass (only channels actually heard; omit this line if nothing is detected)
 - Next line: one positive summary sentence
 - 1–3 actionable advice items. Always name the instrument.
-- Each advice item: action + short reason why (what you heard)
+- Each advice item: one natural sentence — the action and what it improves
 - Actionable: Precise dB values and specific EQ points, Q factors`.trim();
 
 // ── 한글 키 → 숫자 인덱스 매핑 (HTML의 seg-btn 텍스트와 정확히 일치) ──
@@ -1904,7 +1904,7 @@ const I18N = {
 규칙:
 - 말소리·노래·악기가 전혀 없고 방 소음뿐일 때만: "조용한 환경이에요 🎧 믹스를 틀고 눌러주세요!" (말소리만 있어도 정상 분석)
 - 첫 줄: 긍정형 한 줄 요약 (예: "보컬을 살려볼까요?")
-- 둘째 줄부터: 구체적 액션 1~3개 + 짧은 이유 (예: "💡 보컬 +2dB — 기타에 묻혀 가사가 흐려요", "💡 킥 80Hz -1.5dB — 베이스와 겹쳐 저역이 뭉쳐요")
+- 둘째 줄부터: 구체적 액션 1~3개, 각각 무엇이 좋아지는지 한 문장으로 (예: "💡 기타 그룹 Fader -1.5dB로 조정하여 보컬과의 마스킹을 줄여주세요")
 - 전체 3~4줄 이내, 간결하게
 - 문제 없으면: "지금 믹스 완벽해요 🎚️" 한 줄만`,
   },
@@ -1980,7 +1980,7 @@ const I18N = {
 Rules:
 - Only if there is no speech, singing, or instrument at all (room noise only): "Quiet environment 🎧 Play the mix and press again!" (speech alone must be analyzed normally)
 - First line: one positive summary (e.g. "Let's bring out the vocals!")
-- Following lines: 1–3 specific actions + short reason (e.g. "💡 Vocals +2dB — buried under guitars", "💡 Kick 80Hz -1.5dB — clashing with bass")
+- Following lines: 1–3 specific actions, each one sentence saying what it improves (e.g. "💡 Guitar group fader -1.5dB to reduce masking of the vocals")
 - Keep to 3–4 lines total, concise
 - If no issues: "Mix sounds great right now 🎚️" (one line only)`,
   },
