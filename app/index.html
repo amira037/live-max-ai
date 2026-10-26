@@ -57,6 +57,7 @@ You are a live PA sound engineer advisor.
    Output the total as the very first line: SCORE:85
    On the very next line after SCORE, list detected instruments/vocals: CHANNELS:Vocal,Kick,Bass
    Only include channels actually heard. Omit this line if nothing is detected.
+   Then output the four sub-scores on one line: SUB:S24,F20,B16,C15
    
 [CORE MIXING PROTOCOL]
 1. SCOPE CHECK
@@ -81,6 +82,7 @@ Bass: 50~60ms attack / 150~300ms release
 [OUTPUT]
 - First line: one positive summary sentence
 - 1–3 actionable advice items. Always name the instrument.
+- Each advice item: action + short reason why (what you heard)
 - Direct Only: No scenario naming.
 - Actionable: Precise dB values and specific EQ points, Q factors
 - No repeated or rephrased issues
@@ -100,6 +102,7 @@ const QUICK_SYSTEM_PROMPT = `You are a live PA sound engineer advisor.
 - Very first line: detected instruments/vocals, e.g. CHANNELS:Vocal,Kick,Bass (only channels actually heard; omit this line if nothing is detected)
 - Next line: one positive summary sentence
 - 1–3 actionable advice items. Always name the instrument.
+- Each advice item: action + short reason why (what you heard)
 - Actionable: Precise dB values and specific EQ points, Q factors`.trim();
 
 // ── 한글 키 → 숫자 인덱스 매핑 (HTML의 seg-btn 텍스트와 정확히 일치) ──
@@ -603,6 +606,14 @@ input[type=range] {
 .mix-score.score-good    { color: var(--accent); }
 .mix-score.score-ok      { color: var(--warn); }
 .mix-score.score-bad     { color: var(--danger); }
+.score-sub {
+  display: none;
+  margin: -4px 0 8px;
+  padding: 6px 12px;
+  font-size: var(--sm);
+  color: var(--muted2);
+}
+.score-sub.show { display: block; }
 .card-problem.cheer {
   border-color: rgba(0,255,136,0.2);
   background: rgba(0,255,136,0.04);
@@ -1589,6 +1600,18 @@ input[type=range] {
         </div>
       </div>
 
+      <!-- ▶ 점수 로그 -->
+      <div class="setting-section" id="setting-section-scorelog">
+        <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_score_log">점수 로그</span><span class="acc-arrow">▶</span></div>
+        <div class="acc-body">
+          <div class="ch-hint" data-i18n="score_log_hint">분석마다 기준별 점수가 이 기기에 저장됩니다 (최근 300건)</div>
+          <div class="seg-group" style="margin-top:8px">
+            <button class="seg-btn" data-i18n="score_log_download" onclick="downloadScoreLog()">CSV 다운로드</button>
+            <button class="seg-btn" data-i18n="score_log_clear" onclick="clearScoreLog()">비우기</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ▶ 공간 환경 -->
       <div class="setting-section" id="setting-section-space">
         <div class="acc-title" onclick="toggleAcc(this)"><span data-i18n="sec_space">공간 환경</span><span class="acc-arrow">▶</span></div>
@@ -1826,6 +1849,9 @@ const I18N = {
     model_flash38low_hint:'파트별 밸런스',
     model_flash38mid_hint:'깨끗한 톤, 분리도', model_flash38high_hint:'균형잡힌 톤',
     sec_device:'입력 장치', sec_model:'AI 모델', sec_api:'API 연결', sec_space:'공간 환경',
+    sec_score_log:'점수 로그', score_log_hint:'분석마다 기준별 점수가 이 기기에 저장됩니다 (최근 300건)',
+    score_log_download:'CSV 다운로드', score_log_clear:'비우기', score_log_empty:'저장된 점수 로그가 없습니다.',
+    score_log_clear_confirm:'점수 로그를 모두 지울까요?',
     sec_mix:'믹스 취향', sec_memo:'즉석 메모', sec_help:'도움말', sec_backup:'설정 백업',
     api_proxy:'기본 프록시 사용', api_proxy_hint:'proxy.dumpit.dev 경유 (기본값)',
     api_direct:'직접 API 키 사용', api_direct_hint:'Google AI Studio에서 발급한 키',
@@ -1878,7 +1904,7 @@ const I18N = {
 규칙:
 - 말소리·노래·악기가 전혀 없고 방 소음뿐일 때만: "조용한 환경이에요 🎧 믹스를 틀고 눌러주세요!" (말소리만 있어도 정상 분석)
 - 첫 줄: 긍정형 한 줄 요약 (예: "보컬을 살려볼까요?")
-- 둘째 줄부터: 구체적 액션 1~3개 (예: "💡 보컬 +2dB", "💡 킥 80Hz -1.5dB")
+- 둘째 줄부터: 구체적 액션 1~3개 + 짧은 이유 (예: "💡 보컬 +2dB — 기타에 묻혀 가사가 흐려요", "💡 킥 80Hz -1.5dB — 베이스와 겹쳐 저역이 뭉쳐요")
 - 전체 3~4줄 이내, 간결하게
 - 문제 없으면: "지금 믹스 완벽해요 🎚️" 한 줄만`,
   },
@@ -1899,6 +1925,9 @@ const I18N = {
     model_flash38low_hint:'Per-part balance advice',
     model_flash38mid_hint:'Clean tone & separation advice', model_flash38high_hint:'Balanced tone advice',
     sec_device:'Input Device', sec_model:'AI Model', sec_api:'API Connection', sec_space:'Venue',
+    sec_score_log:'Score Log', score_log_hint:'Per-criterion scores are saved on this device for each analysis (last 300)',
+    score_log_download:'Download CSV', score_log_clear:'Clear', score_log_empty:'No score log saved yet.',
+    score_log_clear_confirm:'Clear the entire score log?',
     sec_mix:'Mix Style', sec_memo:'Session Notes', sec_help:'Help', sec_backup:'Backup',
     api_proxy:'Use Default Proxy', api_proxy_hint:'Via proxy.dumpit.dev (default)',
     api_direct:'Use Direct API Key', api_direct_hint:'Key from Google AI Studio',
@@ -1951,7 +1980,7 @@ const I18N = {
 Rules:
 - Only if there is no speech, singing, or instrument at all (room noise only): "Quiet environment 🎧 Play the mix and press again!" (speech alone must be analyzed normally)
 - First line: one positive summary (e.g. "Let's bring out the vocals!")
-- Following lines: 1–3 specific actions (e.g. "💡 Vocals +2dB", "💡 Kick 80Hz -1.5dB")
+- Following lines: 1–3 specific actions + short reason (e.g. "💡 Vocals +2dB — buried under guitars", "💡 Kick 80Hz -1.5dB — clashing with bass")
 - Keep to 3–4 lines total, concise
 - If no issues: "Mix sounds great right now 🎚️" (one line only)`,
   },
@@ -3091,6 +3120,8 @@ ${t('ai_prompt')}`;
     // SCORE / CHANNELS 추출 (퀵 모드는 스코어 스킵)
     const scoreGlobal = !isQuick ? text.match(/SCORE\s*:\s*(\d+)/i) : null;
     const score = scoreGlobal ? parseInt(scoreGlobal[1]) : null;
+    const subGlobal = !isQuick ? text.match(/SUB\s*:\s*S\s*(\d+)\s*,\s*F\s*(\d+)\s*,\s*B\s*(\d+)\s*,\s*C\s*(\d+)/i) : null;
+    const sub = subGlobal ? { S:+subGlobal[1], F:+subGlobal[2], B:+subGlobal[3], C:+subGlobal[4] } : null;
     const channelGlobal = text.match(/CHANNELS\s*:\s*([^\n,][^\n]*)/i);
     const channels = channelGlobal
       ? channelGlobal[1].split(',').map(c=>c.trim()).filter(Boolean)
@@ -3099,7 +3130,8 @@ ${t('ai_prompt')}`;
     // SCORE/CHANNELS 태그를 제거한 순수 콘텐츠 줄만 추출
     const cleaned = text
       .replace(/SCORE\s*:\s*\d+[,\s]*/gi, '')
-      .replace(/CHANNELS\s*:[^\n]*/gi, '');
+      .replace(/CHANNELS\s*:[^\n]*/gi, '')
+      .replace(/SUB\s*:[^\n]*/gi, '');
     const lines = cleaned.split('\n').map(l=>l.trim().replace(/^[\-\*•]\s*/,'').replace(/^\p{Emoji_Presentation}\s*/u,'')).filter(Boolean);
 
     if (lines[0] === 'SILENT' || text.trim() === 'SILENT') {
@@ -3108,7 +3140,8 @@ ${t('ai_prompt')}`;
       return;
     }
     const contentLines = lines;
-    const result = { score, channels, problem: contentLines[0]||'분석 완료', solutions: contentLines.slice(1) };
+    const result = { score, sub, channels, problem: contentLines[0]||'분석 완료', solutions: contentLines.slice(1) };
+    if (score != null) logScore(result, cfg.model);
 
     // 히스토리 저장 (퀵 모드는 스킵)
     if (!isQuick) {
@@ -3228,6 +3261,38 @@ function animateMixScore(el, target) {
   requestAnimationFrame(step);
 }
 
+// ── 기준별 점수 로그 (localStorage, 최근 300건) ──
+function formatSubScore(sub) {
+  return `Sweetness ${sub.S}/30 · Fullness ${sub.F}/30 · Balance ${sub.B}/20 · Clarity ${sub.C}/20`;
+}
+function logScore(result, model) {
+  const entry = { at: new Date().toISOString(), model, score: result.score, sub: result.sub,
+    channels: result.channels, problem: result.problem, solutions: result.solutions };
+  console.log('[score]', result.score, result.sub ? formatSubScore(result.sub) : '(no SUB)');
+  try {
+    const log = JSON.parse(localStorage.getItem('score_log') || '[]');
+    log.push(entry);
+    localStorage.setItem('score_log', JSON.stringify(log.slice(-300)));
+  } catch(e) {}
+}
+function downloadScoreLog() {
+  const log = JSON.parse(localStorage.getItem('score_log') || '[]');
+  if (!log.length) { alert(t('score_log_empty')); return; }
+  const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const rows = [['time','model','total','sweetness/30','fullness/30','balance/20','clarity/20','channels','summary','advice']];
+  log.forEach(e => rows.push([e.at, e.model, e.score, e.sub?.S, e.sub?.F, e.sub?.B, e.sub?.C,
+    (e.channels||[]).join(','), e.problem, (e.solutions||[]).join(' / ')]));
+  const csv = '\uFEFF' + rows.map(r => r.map(esc).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `maxai-score-log-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function clearScoreLog() {
+  if (confirm(t('score_log_clear_confirm'))) localStorage.removeItem('score_log');
+}
+
 function renderAnalysisCard(groupEl, result) {
   if (!groupEl||!result) return;
   const isCheer = !result.solutions||result.solutions.length===0;
@@ -3249,6 +3314,15 @@ function renderAnalysisCard(groupEl, result) {
   }
 
   groupEl.appendChild(p);
+  // 점수 탭 → 기준별 점수 펼치기
+  if (result.sub) {
+    const subEl = document.createElement('div');
+    subEl.className = 'score-sub';
+    subEl.textContent = formatSubScore(result.sub);
+    p.style.cursor = 'pointer';
+    p.addEventListener('click', () => subEl.classList.toggle('show'));
+    groupEl.appendChild(subEl);
+  }
   if (Array.isArray(result.solutions)) {
     result.solutions.forEach(sol => {
       if (!sol) return;
