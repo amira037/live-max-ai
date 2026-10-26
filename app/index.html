@@ -42,11 +42,12 @@ You are a live PA sound engineer advisor.
 
 [SCORING]
 1. Score the mix from 1 to 100.
-   - Sweetness (pleasant tone,harsh zone control): /30
-   - Fullness (low-end body, spectral completeness): /30
+   - Sweetness (pleasant tone,harsh zone control): /20
+   - Fullness (low-end body, spectral completeness): /20
    - Balance (channels, low-high frequency, group): /20
    - Clarity (definition, no masking): /20
-   Sum the four scores for the total.
+   - Dynamics (overall dynamics, damping, over/under-compression): /20
+   Sum the five scores for the total.
 
    Anchor references:
    - Silent or near-silent clip: output no SCORE line
@@ -57,7 +58,7 @@ You are a live PA sound engineer advisor.
    Output the total as the very first line: SCORE:85
    On the very next line after SCORE, list detected instruments/vocals: CHANNELS:Vocal,Kick,Bass
    Only include channels actually heard. Omit this line if nothing is detected.
-   Then output the four sub-scores on one line: SUB:S24,F20,B16,C15
+   Then output the five sub-scores on one line: SUB:S16,F15,B17,C16,D15
    
 [CORE MIXING PROTOCOL]
 1. SCOPE CHECK
@@ -3120,8 +3121,8 @@ ${t('ai_prompt')}`;
     // SCORE / CHANNELS 추출 (퀵 모드는 스코어 스킵)
     const scoreGlobal = !isQuick ? text.match(/SCORE\s*:\s*(\d+)/i) : null;
     const score = scoreGlobal ? parseInt(scoreGlobal[1]) : null;
-    const subGlobal = !isQuick ? text.match(/SUB\s*:\s*S\s*(\d+)\s*,\s*F\s*(\d+)\s*,\s*B\s*(\d+)\s*,\s*C\s*(\d+)/i) : null;
-    const sub = subGlobal ? { S:+subGlobal[1], F:+subGlobal[2], B:+subGlobal[3], C:+subGlobal[4] } : null;
+    const subGlobal = !isQuick ? text.match(/SUB\s*:\s*S\s*(\d+)\s*,\s*F\s*(\d+)\s*,\s*B\s*(\d+)\s*,\s*C\s*(\d+)(?:\s*,\s*D\s*(\d+))?/i) : null;
+    const sub = subGlobal ? { S:+subGlobal[1], F:+subGlobal[2], B:+subGlobal[3], C:+subGlobal[4], D:subGlobal[5] != null ? +subGlobal[5] : null } : null;
     const channelGlobal = text.match(/CHANNELS\s*:\s*([^\n,][^\n]*)/i);
     const channels = channelGlobal
       ? channelGlobal[1].split(',').map(c=>c.trim()).filter(Boolean)
@@ -3263,7 +3264,7 @@ function animateMixScore(el, target) {
 
 // ── 기준별 점수 로그 (localStorage, 최근 300건) ──
 function formatSubScore(sub) {
-  return `Sweetness ${sub.S}/30 · Fullness ${sub.F}/30 · Balance ${sub.B}/20 · Clarity ${sub.C}/20`;
+  return `Sweetness ${sub.S}/20 · Fullness ${sub.F}/20 · Balance ${sub.B}/20 · Clarity ${sub.C}/20` + (sub.D != null ? ` · Dynamics ${sub.D}/20` : '');
 }
 function logScore(result, model) {
   const entry = { at: new Date().toISOString(), model, score: result.score, sub: result.sub,
@@ -3279,8 +3280,8 @@ function downloadScoreLog() {
   const log = JSON.parse(localStorage.getItem('score_log') || '[]');
   if (!log.length) { alert(t('score_log_empty')); return; }
   const esc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const rows = [['time','model','total','sweetness/30','fullness/30','balance/20','clarity/20','channels','summary','advice']];
-  log.forEach(e => rows.push([e.at, e.model, e.score, e.sub?.S, e.sub?.F, e.sub?.B, e.sub?.C,
+  const rows = [['time','model','total','sweetness','fullness','balance','clarity','dynamics','channels','summary','advice']];
+  log.forEach(e => rows.push([e.at, e.model, e.score, e.sub?.S, e.sub?.F, e.sub?.B, e.sub?.C, e.sub?.D,
     (e.channels||[]).join(','), e.problem, (e.solutions||[]).join(' / ')]));
   const csv = '\uFEFF' + rows.map(r => r.map(esc).join(',')).join('\n');
   const a = document.createElement('a');
